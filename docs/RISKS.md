@@ -113,14 +113,17 @@ not fatal, unless it crashes.**
 "corrupt ⇒ ignore with one note", tests with truncated and bit-flipped files.
 *Early warning:* any `fscanf`-style parsing of the state file.
 
-### R12. Toolchain gaps in the audit environment
-**Likelihood: certain (measured). Impact: weaker verification than claimed.**
-`valgrind`, `dash`, and `cppcheck` are not installed; `sh` is bash, so the
-"conservative POSIX" reference is missing.
-*Mitigations:* ASan/UBSan replace valgrind for the C parts; the differential
-runner skips dash with a visible warning and supports `WL_REQUIRE_DASH=1`;
-`docs/COMPATIBILITY.md` §2 states the gap. Do not pretend `sh` = dash.
-*Early warning:* a compatibility claim whose test ran only under bash.
+### R12. Verification gaps beyond the toolchain
+**Likelihood: medium. Impact: weaker verification than claimed.**
+The tools are now installed (`dash` 0.5.13.5, `valgrind` 3.25.1, `cppcheck`
+2.22.0, measured 2026-11-19), so the earlier gap is closed at the tool level.
+What remains is the missing *differential harness*: M1's tests compare the
+shell against its own specification, not against dash/bash. `sh` is still bash
+and is never treated as dash.
+*Mitigations:* ASan/UBSan plus valgrind (`make memcheck`) and cppcheck
+(`make lint`); `docs/COMPATIBILITY.md` §3.0 marks M1 behaviour as tested but
+not "supported"; the differential runner is an explicit M2–M3 deliverable.
+*Early warning:* a compatibility sentence written before the harness exists.
 
 ### R13. Terminal/app interference from presentation
 **Likelihood: medium. Impact: corrupts `vim`, `less`, `htop` display; users

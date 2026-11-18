@@ -442,7 +442,10 @@ not guess now. Affects `docs/COMPATIBILITY.md` §6.
 
 ## §5. Superseded decisions
 
-None yet.
+* **D-0028** (missing `dash`, `valgrind`, `cppcheck`) is superseded by
+  **D-0048**: the tools are now installed. The policy it stated (`sh` is not
+  dash; ASan is the memory tool of record) still holds where it is not about
+  availability.
 
 ## §6. Verification notes
 
@@ -466,3 +469,120 @@ removed:
 After removal, `make test` was green again (15 unit cases, 24 CLI checks). If a
 future change weakens any of these three, that test is the one to re-run by
 hand before trusting the docs.
+
+---
+
+## §7. Milestone 1 implementation decisions
+
+### D-0044 — M1 includes foreground process-group handoff
+**2026-11-19 · accepted**
+
+M1 gives each external command its own process group, hands it the terminal
+with `tcsetpgrp`, waits, and takes the terminal back. This is a deliberate
+subset of M4, included early for one reason: without it, Ctrl-C during a
+command kills the shell as well as the child, and the shell is not usable
+enough to dogfood. What M1 still lacks, and M4 adds: a job table, `jobs`/`fg`/
+`bg`, `WUNTRACED`/`SIGCONT` handling, background jobs, the `SIGCHLD`
+self-pipe, `wait`, and traps on `EXIT`/`INT`/`TERM`.
+
+### D-0045 — SIGINT is a flag, not yet a self-pipe
+**2026-11-19 · accepted**
+
+The interactive handler sets a `volatile sig_atomic_t` and returns; `read(2)`
+returns `EINTR` because the handler is installed without `SA_RESTART`. There
+is no `poll()` loop yet, so a self-pipe would have nothing to wake. This
+satisfies the safety rule ("one async-signal-safe action") without inventing
+plumbing for M4 to replace. The line reader uses `read(2)` rather than stdio
+because stdio may retry after `EINTR` and swallow the interrupt, and because
+canonical-mode `read(2)` returns at most one line, so nothing is lost.
+
+`AGENTS.md` §2 rule 6 is amended by this entry: a handler may set a
+`sig_atomic_t` flag *or* write one byte to the self-pipe, never both, never
+anything else.
+
+### D-0046 — The prompt goes to stderr, in one tested shape
+**2026-11-19 · accepted**
+
+The prompt is shell presentation, not narrative and not command output, so it
+is written to stderr and flushed before each read. It stays visible in plain
+mode (plain mode suppresses the world, not the shell). Shape:
+
+```
+wonderland:<path>[ [status]]$ 
+```
+
+`<path>` abbreviates `$HOME` to `~`; a path longer than 48 bytes is reduced to
+`../<leaf>` so the prompt stays usable in narrow terminals; no colour yet. The
+format is a pure function (`wl_prompt_format`) with exact-byte tests, because
+prompt bugs are otherwise found by eye.
+
+### D-0047 — M1 execution contract and limits
+**2026-11-19 · accepted**
+
+* The M1 splitter is whitespace-only and marked `M1-ONLY`; it is deleted in
+  M2 (D-0037).
+* Limits: 4095-byte command lines and 255 arguments, refused with status 2 and
+  a diagnostic, never truncated.
+* `-c STRING` executes each newline-separated line in order. `;` is *not*
+  special yet; it is an ordinary argument. This is stated in the usage text by
+  omission and in the README as a limitation.
+* An empty or whitespace-only line executes nothing and leaves `$?` unchanged,
+  matching shell behaviour.
+* `wonderland SCRIPT` is still refused with status 3; `-` reads stdin
+  non-interactively. Script files arrive with the parser in M3.
+* `SIGINT`-interrupted reads return to a fresh prompt without executing the
+  partial line.
+
+### D-0048 — Developer tooling is available; `make memcheck` and `make lint`
+**2026-11-19 · accepted**
+
+Installed in this environment: `dash` 0.5.13.5, `valgrind` 3.25.1, `cppcheck`
+2.22.0. `make memcheck` runs the unit suite under valgrind
+(`--error-exitcode=1`, definite leaks fail); `make lint` runs cppcheck with
+warnings/performance/portability enabled and `--error-exitcode=1`. Both are
+developer tools, not part of `make test`: `make test` must keep working on a
+machine that has only a compiler and make.
+
+### D-0049 — `exit` and `cd` edge semantics
+**2026-11-19 · accepted**
+
+* `exit N`: N must be a decimal integer in 0..255. Anything else prints
+  `numeric argument required`, sets status 2 and stops the shell (POSIX-style),
+  because continuing after a bad exit request is worse than stopping.
+* `exit A B`: too many arguments; status 1 and the shell keeps running. The
+  request is ambiguous, so it is refused rather than guessed.
+* `exit` with no argument uses `$?` and stops with it.
+* `cd` with no argument uses `$HOME`; `cd -` uses `$OLDPWD` and prints the new
+  directory to stdout (POSIX behaviour, and the only builtin that writes to
+  stdout). `cd` updates `PWD`/`OLDPWD`.
+* Neither builtin has narrative, confirmation or aliases yet; those belong to
+  M6/M7 and change status behaviour not at all.
+
+### D-0050 — No `ENOEXEC` fallback to `sh`
+**2026-11-19 · accepted (temporary)**
+
+A file without a `#!` line, executed as a command, fails with
+"Exec format error" and status 126. POSIX shells fall back to running it with
+`sh`. Wonderland does not yet, because that fallback is a compatibility
+feature that deserves its own test (M8) and must not be smuggled in as an
+error-path accident. Recorded as a known limitation in the README. Scripts
+with a shebang, including `#!/bin/bash`, already run under the kernel's chosen
+interpreter.
+
+### D-0051 — Ctrl-Z is a no-op until M4; non-interactive children share the group
+**2026-11-19 · accepted**
+
+Two consequences of not having a job table yet:
+
+* Interactive children inherit SIGTSTP/SIGTTIN/SIGTTOU as ignored. A stopped
+  child could not be resumed (`waitpid` without `WUNTRACED`, no `fg`), so the
+  terminal would hang with no recovery path. Ctrl-Z therefore does nothing to
+  a command until M4 implements suspend/resume. This is a deliberate
+  divergence, tested in `tests/pty/pty_test.c`.
+* When stdin is not a terminal (`-c`, pipes, here-docs), children stay in the
+  shell's process group and the terminal is not handed over. A child in its
+  own group without terminal ownership would stop on the first `read` from the
+  tty (SIGTTIN) with nobody to continue it.
+
+M4 removes both: it adds the job table, `WUNTRACED`/`SIGCONT`, `fg`/`bg`, and
+restores default stop dispositions in children.

@@ -3,70 +3,87 @@
 A Unix shell in C17 for Linux, with an optional narrative layer: a dark
 fairy-tale world inhabited by personas who react to what happens in the shell.
 
-**Status: bootstrap. There is no shell yet.** This repository currently
-contains the design documents, the build skeleton, a test harness, and a
-binary that answers `--version`, accepts `--plain`, and refuses everything
-else. Do not use it as a shell, do not put it in `/etc/shells`, and do not
-`chsh` to it.
+**Status: Milestone 1. The shell runs commands, but it is not yet a daily
+driver.** There is no quoting, no `;`, no pipes, no redirections, no job
+control and no history. Do not put it in `/etc/shells` and do not `chsh` to it.
 
 The ordering principle is not decorative:
 
 > A proper shell first, a living inhabited world second.
 
-## What exists
+## What works today
 
-| Part | State |
-|------|-------|
-| Design and architecture docs | written (`docs/`) |
-| Build system (`make`, `make test`, `make asan`) | working |
-| Binary: `--version`, `--plain`, refusal of unsupported requests | working |
-| C test harness and CLI tests | working |
-| Narrative library boundary and isolation checks | working (placeholder code) |
-| Shell: lexer, parser, execution, jobs, editor | **not started** |
-| Content packs: loader | **not started**; one example pack with original lines |
+```sh
+$ ./build/wonderland
+wonderland:~/Projects/wonderland $ echo hello
+hello
+wonderland:~/Projects/wonderland $ cd /tmp
+wonderland:/tmp $ pwd
+/tmp
+wonderland:/tmp $ nosuchcommand
+wonderland: nosuchcommand: command not found
+wonderland:/tmp [127] $ exit 3
+```
+
+* Interactive prompt on stderr, with `$?` shown when nonzero.
+* External commands via `fork`/`execve`, `$PATH` lookup, 127/126/128+N status
+  mapping, foreground process-group handoff, Ctrl-C at the prompt returns to a
+  fresh prompt instead of killing the shell.
+* Builtins: `cd` (HOME, `-`, PWD/OLDPWD) and `exit` (0–255).
+* `-c STRING` (newline-separated lines), commands from stdin, and `-` for
+  explicit stdin. All three are non-interactive and therefore plain.
+* `--plain` and `WONDERLAND_PLAIN=1`; the narrative layer is not built yet, so
+  plain mode currently has nothing to suppress, and the tests assert that
+  stdout stays clean anyway.
+
+## What does not work yet
+
+| Missing | Arrives |
+|---|---|
+| Quotes, escapes, expansion (`$x`, `$(...)`), globbing | M2–M3 |
+| `;`, `&&`, `\|\|`, pipes, redirections, here-documents | M2–M3 |
+| Script files (`wonderland file.sh`) — refused with status 3 | M3 |
+| Job control (`jobs`, `fg`, `bg`, Ctrl-Z), history, line editing | M4–M5 |
+| `ENOEXEC` fallback for shebang-less scripts | M8 |
+| Personas, packs, `possess`, `rest`, `go-to-alice` | M3.5, M6–M7 |
+
+Consequences today: `echo "a b"` passes the quotes through literally, `a;b` is
+one word, and `ls | wc` is an argument list, not a pipeline. Ctrl-Z does
+nothing to a running command (it is ignored, tested, and documented in
+`docs/DECISIONS.md` D-0051) so that the shell can never wedge on a stopped
+child. The M1 splitter is marked `M1-ONLY` and is deleted in M2
+(`docs/DECISIONS.md` D-0037).
 
 ## Build and test
 
 ```sh
 make                 # build/wonderland
-make test            # unit + CLI + isolation checks
+make test            # 48 unit cases + 54 CLI checks + a pty session test
 make asan            # the same under ASan/UBSan
-./build/wonderland --version
+make memcheck        # unit suite under valgrind (if installed)
+make lint            # cppcheck over src/ (if installed)
 ```
 
-Requirements: a C17 compiler, GNU Make, a POSIX shell. No third-party
-libraries. `dash` and `valgrind` are useful but not required (see
-`docs/RISKS.md` R12).
-
-## Try it
-
-```sh
-$ ./build/wonderland --version
-wonderland 0.0.0 (bootstrap; no shell implemented)
-
-$ ./build/wonderland
-wonderland: the interactive shell is not implemented in this bootstrap build; see docs/ROADMAP.md.
-$ echo $?
-3
-```
+Requirements: a C17 compiler, GNU Make, a POSIX shell. Optional developer
+tools: `valgrind`, `cppcheck`, `dash` (for the future differential suite).
 
 ## Layout
 
 ```
-src/core       shell state, variables, options, diagnostics, arenas
-src/term       terminal snapshot/restore, window size, /dev/tty
-src/line       line editor, history, completion
-src/lex        lexer and tokens
-src/parse      parser and diagnostics
-src/ast        AST nodes and traversal
-src/expand     parameter/command/arithmetic expansion, splitting, globbing
-src/exec       builtin dispatch, fork/exec, pipelines, redirections
-src/jobs       process groups, job table, signals
-src/builtins   cd, exit, possess, rest, go-to-alice, ...
-src/narrative  personas and events (isolated library)
-src/content    content pack loader
-include/       public headers (narrative headers are namespaced separately)
-tests/         unit tests, isolation probe, black-box CLI tests
+src/core       shell state, options, diagnostics, arenas
+src/term       terminal snapshot/restore, prompt formatting
+src/line       canonical-mode reader (the M5 editor replaces it)
+src/lex        lexer (M2)
+src/parse      parser (M2)
+src/ast        AST and dump (M2)
+src/expand     expansion, splitting, globbing (M3)
+src/exec       PATH resolution, fork/exec, builtin dispatch
+src/jobs       signal dispositions, later the job table
+src/builtins   cd, exit, later possess/rest/go-to-alice
+src/narrative  personas and events (isolated library, M3.5+)
+src/content    content pack loader (M6)
+include/       public headers
+tests/         unit, CLI, pty, isolation probe
 packs/         example content packs (original lines only)
 scripts/       repository checks
 docs/          design, architecture, grammar, personas, compatibility, ...
@@ -85,18 +102,18 @@ docs/          design, architecture, grammar, personas, compatibility, ...
 `AGENTS.md` is the working contract: safety rules, style, ownership, commit
 conventions, and the per-milestone workflow.
 
-## Plain mode
+## Plain mode, stdout purity
 
-`--plain`, or `WONDERLAND_PLAIN=1`, or any non-interactive invocation
-(`-c`, a script file, a pipe) disables the narrative layer completely.
-Narrative output, when it exists, goes to stderr or `/dev/tty` and never to
-stdout. Plain mode currently has nothing to suppress; the tests assert that
-nothing reaches stdout anyway.
+`--plain`, `WONDERLAND_PLAIN=1`, `-c`, a script and stdin are all plain.
+Narrative output, when it exists, will go to stderr or `/dev/tty` and never to
+stdout. The prompt is shell presentation: stderr, suppressed when not
+interactive. `tests/run.sh` captures stdout and stderr separately and asserts
+byte-exact stdout for every execution path.
 
 ## Content
 
 Wonderland distinguishes canonical material, sourced quotations, and original
-writing. The loader refuses to treat unverified text as canonical. This
+writing. The loader (M6) refuses to treat unverified text as canonical. This
 repository ships only original example lines; Black Souls dialogue and
 third-party quotations are not committed here.
 

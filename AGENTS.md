@@ -26,8 +26,11 @@ Repository docs are normative:
 | `docs/ROADMAP.md` | milestone order and exit criteria |
 | `docs/RISKS.md` | known failure modes and tripwires |
 
-Current status: bootstrap only. `main` handles `--version` and `--plain`; there
-is no shell. Do not describe the project as a working shell.
+Current status: Milestone 1 (2026-11-19). The shell runs external commands,
+`cd`, `exit`, `-c` and stdin, with a prompt and Ctrl-C handling. There is no
+quoting, expansion, `;`, pipes, redirection, job control, history, or narrative
+code. `src/exec/m1_split.c` is a temporary splitter, deleted in M2. Do not
+describe the project as a usable daily shell.
 
 ## 2. Non-negotiable safety rules
 
@@ -40,8 +43,8 @@ is no shell. Do not describe the project as a working shell.
 4. Plain mode (`--plain`, `WONDERLAND_PLAIN=1`) disables narrative behaviour
    completely — no packs loaded, no hooks called, no tty switching.
 5. Terminal settings are restored on every exit path, including signals.
-6. Signal handlers do one thing: `write()` a byte to the self-pipe. Nothing
-   else. Ever.
+6. Signal handlers do one thing: write a byte to the self-pipe, or (until a
+   poll loop exists) set a `sig_atomic_t` flag. Nothing else. Ever.
 7. A malformed pack, corrupt state file, or failed narrative allocation must
    leave a working shell.
 8. No unbounded recursion: parser depth, expansion depth, and pack size have
@@ -57,15 +60,18 @@ the world feel better.
 
 ```sh
 make                  # build build/wonderland
-make test             # unit tests + CLI tests + isolation checks
-make asan             # rebuild with ASan/UBSan and run the C tests
+make test             # unit tests + CLI tests + pty test + isolation checks
+make asan             # rebuild with ASan/UBSan and run the same suite
+make memcheck         # unit suite under valgrind (developer tool)
+make lint             # cppcheck over src/ (developer tool)
 make clean            # remove build/
 ```
 
 Requirements: C17 compiler (GCC or Clang), GNU Make, POSIX shell for
 `tests/run.sh`. Optional but recommended: `dash` for differential tests,
-`valgrind` for leak checks, `clang-format` for consistency. This environment is
-missing `dash` and `valgrind`; see `docs/RISKS.md` R12.
+`valgrind` for leak checks, `clang-format` for consistency. This environment
+has `dash` 0.5.13.5, `valgrind` 3.25.1 and `cppcheck` 2.22.0; the differential
+harness itself is still M2–M3 work.
 
 Rules:
 

@@ -29,21 +29,32 @@ build, terminal initialisation and restoration, main loop, basic prompt,
 Explicit non-scope: quoting, expansion, pipes, redirections, history, the
 line editor, narrative.
 
-The M1 line reader is a `getline()` loop plus a deliberately disposable
-whitespace splitter. It must be marked `/* M1-ONLY: replaced by lex/parse in
-M2 */` and must not grow features. If it starts parsing quotes, stop and move
+The interactive reader is `read(2)` on the canonical tty, plus a deliberately
+disposable whitespace splitter (`src/exec/m1_split.c`). The splitter is marked
+M1-ONLY and must not grow features. If it starts parsing quotes, stop and move
 to M2.
 
-Exit criteria:
+Status: **done** (2026-11-19). Evidence: `make test` runs 48 unit cases (116
+assertions), 54 CLI checks, and a pty test covering prompt, external command,
+`cd`, Ctrl-C at the prompt, `exit 4`, and unchanged termios. `make asan`,
+`make memcheck` (valgrind) and `make lint` (cppcheck) are clean.
 
-* `wonderland` inside a terminal runs `ls`, `cd /tmp`, `exit`; prompt shows
-  `$?` and cwd basename.
-* Terminal is restored after `exit`, Ctrl-D, and a deliberate `SIGINT` at the
-  prompt (verified by reading `stty -a` in the parent).
-* `wonderland -c 'true'`-style execution is still rejected (M3) but accepted
-  as an option and reported honestly as unimplemented.
-* Unit tests for option parsing, `PATH` search, status mapping; a `pty` test
-  for start/exit.
+Deviations from the plan above, recorded in `docs/DECISIONS.md`:
+
+* `-c` executes in M1 rather than M3 (D-0047); script files still refuse.
+* Foreground process-group handoff is included early, because without it
+  Ctrl-C kills the shell (D-0044).
+* The prompt uses the full HOME-abbreviated path, not the basename (D-0046).
+* SIGINT uses a `sig_atomic_t` flag until a poll loop exists (D-0045).
+
+Exit criteria as met:
+
+* `wonderland` in a terminal runs `ls`, `cd /tmp`, `exit`; the prompt shows
+  `$?` when nonzero; Ctrl-C returns to a fresh prompt.
+* Terminal settings are unchanged across a session, asserted by the pty test.
+* `wonderland -c 'echo hi'` runs and propagates status; `cd`/`exit` behave as
+  specified in D-0049.
+* A pty test for start/command/Ctrl-C/exit exists and runs in `make test`.
 
 ## M2 — Lexer, Parser, AST
 
@@ -171,17 +182,28 @@ from bash. Bugs found here outrank new features. The gate to `chsh` is in
 * Bash extensions last: they are the most likely to distort the parser, and
   they are the least necessary for daily use.
 
-## Recommended scope for the Milestone 1 prompt
+## Milestone 1 as implemented
 
-> Implement Milestone 1 only, per `docs/ROADMAP.md` and `AGENTS.md`:
-> (1) `src/term/` terminal snapshot/restore with an `atexit` + signal path and
-> a `pty` test for start/exit; (2) a main loop that reads a line with
-> `getline()` (interactive and `-c`, script file deferred to M3), prints a
-> practical prompt with cwd basename and `$?`, and exits on Ctrl-D; (3) `cd`
-> and `exit` builtins with POSIX exit statuses; (4) external execution via
-> `fork`/`execvp` with `PATH` search and status mapping (127 not found, 126
-> not executable); (5) the disposable whitespace splitter, clearly marked
-> M1-ONLY, with zero quoting/expansion logic; (6) unit tests for option
-> parsing and `PATH` resolution and a `pty` smoke test; (7) update
-> `docs/DECISIONS.md` and report known limitations. Do not start the lexer,
-> do not add history, do not add narrative code, do not touch `/etc/shells`.
+Delivered: `src/term/` snapshot/restore (+ `atexit`), `src/term/prompt.c`,
+`src/jobs/signal.c`, `src/line/read.c`, `src/exec/{path,exec,m1_split}.c`,
+`src/core/{shell,opts}.c`, `src/builtins/builtins.c` (`cd`, `exit`), the loop
+and `-c`/stdin handling in `src/main.c`, and tests at three levels (unit, CLI,
+pty). The `pty` test drives a real terminal, not a mock.
+
+## Recommended scope for the Milestone 2 prompt
+
+> Implement Milestone 2 only, per `docs/ROADMAP.md`, `docs/GRAMMAR.md` and
+> `AGENTS.md`: (1) tokens with byte spans and a per-byte quote map, including
+> the quoting matrix in `docs/GRAMMAR.md` §10; (2) word parts (`literal`,
+> `param`, `cmdsub`, `arith`, `tilde`) that preserve quoted vs unquoted
+> content, with `""` surviving as an empty quoted part; (3) the grammar's
+> lists/pipelines/simple commands/reserved words/redirections/here-doc queue,
+> with the documented recursion and size limits; (4) AST nodes in the per-line
+> arena, `wl_ast_dump()` with a stable format; (5) diagnostics with
+> `file:line:col`, a source excerpt and a caret, one error per line;
+> (6) delete `src/exec/m1_split.c` and its header, and make execution consume
+> the AST for simple commands only — no expansion, no pipes, no redirections
+> yet beyond parsing them and refusing cleanly; (7) parser, lexer and dump
+> tests plus an ASan fuzz pass over random inputs; (8) update
+> `docs/DECISIONS.md`, `docs/COMPATIBILITY.md` and report known limitations.
+> Do not implement expansion, job control, history, or narrative code.

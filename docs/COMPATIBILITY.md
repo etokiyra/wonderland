@@ -19,24 +19,43 @@ test suite and not a mood.
    only place a feature may be called supported, and each entry names the test
    file that proves it.
 
-## 2. Environment facts (measured 2026-11-18)
+## 2. Environment facts (re-measured 2026-11-19)
 
 | Tool | Found | Consequence |
 |------|-------|-------------|
 | `bash` | 5.3.20(1) | differential reference available |
 | `sh` → `/bin/sh` | bash 5.3.20 (bash in POSIX mode is **not** guaranteed to match dash) | cannot stand in for dash |
-| `dash` | **not installed** | differential tests against dash must skip with a visible warning, or fail when `WL_REQUIRE_DASH=1` is set |
+| `dash` | 0.5.13.5, installed | the conservative POSIX reference is available; the differential harness is still to be written |
+| `valgrind` | 3.25.1 | `make memcheck` runs the unit suite under it |
+| `cppcheck` | 2.22.0 | `make lint` runs it over `src/` |
 | `ksh`, `mksh`, `zsh`, `yash`, `busybox sh` | not installed | out of scope for the local matrix |
 
-The absence of dash is a real testing gap and is recorded in
-`docs/RISKS.md`. It must not be papered over by treating `sh` (bash) as dash.
-Recommended fix before M3: install dash (`pacman -S dash`) or run the
-differential suite in a container.
+The dash gap noted in the first audit is closed at the tool level; the
+differential runner itself is still a design (`docs/ROADMAP.md` M2–M3), so no
+compatibility claim in this document rests on it yet. `sh` is never treated as
+dash.
 
 ## 3. Support matrix
 
 Legend: **planned** = in a milestone, **tested** = has a passing differential
 case, **no** = out of scope.
+
+### 3.0 Implemented at M1 (2026-11-19), with its own tests
+
+This is deliberately *not* called supported in the POSIX sense: there is no
+differential case yet, and the argument layer is the M1 whitespace splitter.
+
+| Behaviour | Evidence |
+|-----------|----------|
+| Simple commands with whitespace-separated words | `tests/run.sh`, `tests/unit/test_split.c` |
+| `$PATH` search, direct paths, 127 vs 126 | `tests/unit/test_path.c`, `tests/run.sh` |
+| Exit status propagation, 128+N for signals | `tests/run.sh` |
+| `cd` (HOME, `-`, PWD/OLDPWD) and `exit` (0–255) | `tests/unit/test_builtins.c`, `tests/run.sh` |
+| `-c`, newline-separated lines, stdin, `-` | `tests/run.sh` |
+| Prompt shape, `$?` display, HOME abbreviation | `tests/unit/test_prompt.c`, `tests/pty/pty_test.c` |
+| Ctrl-C at the prompt; unchanged termios | `tests/pty/pty_test.c` |
+| Ctrl-Z is a no-op, does not wedge the shell (D-0051) | `tests/pty/pty_test.c` |
+| Quoting, expansion, pipes, redirection, `;` | **not implemented** |
 
 ### 3.1 POSIX surface
 
@@ -106,6 +125,10 @@ A feature is **supported** only when all of the following hold:
 
 ## 5. Differential test harness (design)
 
+Status: not implemented. The runner below is the plan for M2–M3; until it
+exists, the M1 tests in §3.0 are regression tests against our own behaviour,
+not against another shell. Do not upgrade them into a compatibility claim.
+
 ```
 tests/cases/<area>/<name>.sh     the script under test
 tests/cases/<area>/<name>.out    expected stdout (golden, generated from dash
@@ -142,6 +165,10 @@ candidates:
 
 * `echo` will be the POSIX-ish builtin with no `-e`/`-E` extensions in v1;
   scripts relying on bash's `echo -e` are directed to `printf`.
+* Ctrl-Z does not suspend a command until M4; children ignore SIGTSTP
+  (D-0051). The shell never hangs waiting for a stopped child.
+* Non-interactive children share the shell's process group, so Ctrl-C kills
+  the command and the shell together when `-c` runs on a terminal (D-0051).
 * `cd` defaults to logical (`-L`) with `-P` available, matching POSIX.
 * `set -e` will follow the POSIX text and the dash behaviour, which surprises
   people; the divergence table will state which.

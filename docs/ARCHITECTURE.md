@@ -73,7 +73,9 @@ Allowed edges (anything else is a bug):
 
 * `core` depends on libc only.
 * `term`, `line`, `lex`, `ast`, `parse`, `expand`, `jobs`, `content` depend on
-  `core` and on modules below them in the graph above.
+  `core` and on modules below them in the graph above. `line` additionally
+  reads the SIGINT flag from `jobs/signal.h`: one function, no shell state, no
+  mutation.
 * `exec` depends on `core`, `ast`, `expand`, `builtins`, `jobs`, `term`.
 * `builtins` depends on `core`, `exec` (interface only), `jobs`, `content`,
   `narrative` (ABI only).
@@ -150,6 +152,24 @@ Ordering rules that make the contract true:
   or silent narrative layer is indistinguishable from a plain shell.
 * If a foreground job was running, no narrative runs for the duration of that
   job (nothing is written while a program owns the screen).
+
+### 4.1 Implemented at M1
+
+| Step | File |
+|------|------|
+| option handling, `-c`, stdin, the loop | `src/main.c`, `src/core/opts.c` |
+| session state, `$?`, `exit` bookkeeping | `src/core/shell.c` |
+| terminal snapshot and prompt | `src/term/term.c`, `src/term/prompt.c` |
+| SIGINT flag and child dispositions | `src/jobs/signal.c` |
+| canonical-mode line reader | `src/line/read.c` |
+| PATH resolution | `src/exec/path.c` |
+| fork/exec, process group, terminal handoff | `src/exec/exec.c` |
+| `cd`, `exit` | `src/builtins/builtins.c` |
+| M1-only whitespace splitter (deleted in M2) | `src/exec/m1_split.c` |
+
+Everything else in this document is still a contract, not a description. The
+prompt is written to stderr; no narrative output exists yet, so stdout purity
+is currently a property of the code structure rather than of a runtime gate.
 
 ## 5. Core data model
 
