@@ -1,0 +1,24 @@
+# Build output
+/build/
+*.o
+*.a
+*.so
+*.d
+
+# Sanitizer / profiler artefacts
+*.gcda
+*.gcno
+*.profraw
+
+# Tooling
+compile_commands.json
+.cache/
+.clangd/
+*.swp
+*~
+.DS_Store
+
+# Local runtime state (future: Alice's Library counter, rest checkpoints)
+/wonderland.state
+/wonderland.state.tmp
+/packs/local/
