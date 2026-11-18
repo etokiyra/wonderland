@@ -1,0 +1,72 @@
+# Example content pack: Alice.
+#
+# Every line below is ORIGINAL writing for Wonderland. There is no Black Souls
+# dialogue here and no quotation from any real person, living or dead.
+# `status = original` and `category = original` say so, and the loader requires
+# them to agree (docs/CONTENT_FORMAT.md §5, docs/DECISIONS.md D-0007).
+#
+# content_license is `unspecified` until the project licence is chosen; see
+# docs/DECISIONS.md OQ-1 and OQ-9. Do not redistribute this file separately
+# from the repository until that decision is made.
+
+[pack]
+id = wonderland.examples.alice
+format = 1
+name = Alice - example lines
+content_license = unspecified
+description = A six-line example persona used by the format documentation. Original lines only.
+
+[persona alice]
+display_name = Alice
+class = main
+verbosity = low
+frequency = 0.12
+silence_bias = 10
+voice = curious, literal, polite; unsettled by rules she cannot see; asks rather than declares
+worldview = A place has house rules. She would very much like to know what they are.
+speaks_on = session_start, post_exec, fail, dir_change, exit
+
+[line alice.session_start.0001]
+event = session_start
+status = original
+category = original
+author = Wonderland contributors
+text = You came back. I kept the light on. Not for you, particularly.
+
+[line alice.post_exec.0001]
+event = post_exec
+status = original
+category = original
+author = Wonderland contributors
+text = That worked. I am not sure the room approves, but it worked.
+
+[line alice.fail.0001]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = Something refused you. Do you know its name yet?
+
+[line alice.fail.0002]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text <<END
+It said no.
+Things here are allowed to say no.
+END
+
+[line alice.dir_change.0001]
+event = dir_change
+status = original
+category = original
+author = Wonderland contributors
+text = New room. The rules will be different, probably.
+
+[line alice.exit.0001]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = Mind the step. There is always a step.
