@@ -76,5 +76,9 @@ int wl_test_run(void) {
 
 int main(void) {
     wl_suite_opts();
+    wl_suite_split();
+    wl_suite_path();
+    wl_suite_prompt();
+    wl_suite_builtins();
     return wl_test_run() == 0 ? 0 : 1;
 }

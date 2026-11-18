@@ -1,0 +1,29 @@
+#ifndef WL_JOBS_SIGNAL_H
+#define WL_JOBS_SIGNAL_H
+
+#include <stdbool.h>
+
+/*
+ * Signal handling, M1 edition.
+ *
+ * The interactive shell installs a SIGINT handler that only sets a flag; the
+ * read loop observes it after read(2) returns EINTR. This is async-signal-safe
+ * by construction and needs no self-pipe, because there is no poll() loop yet.
+ * M4 introduces the self-pipe for SIGCHLD and job notifications; the SIGINT
+ * contract stays "set a flag, do nothing else" (docs/DECISIONS.md D-0045).
+ *
+ * Interactive mode also ignores SIGQUIT, SIGTSTP, SIGTTIN and SIGTTOU, as a
+ * job-controlling shell must. Children reset all of them to SIG_DFL before
+ * exec, otherwise an ignored SIGINT would be inherited.
+ */
+
+/* Installs the interactive dispositions. Only call when interactive. */
+void wl_signal_init_interactive(void);
+
+/* Restores default dispositions; call in a forked child before exec. */
+void wl_signal_reset_for_child(void);
+
+/* Returns true once if SIGINT arrived since the last call; clears the flag. */
+bool wl_signal_take_interrupt(void);
+
+#endif /* WL_JOBS_SIGNAL_H */

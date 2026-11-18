@@ -28,6 +28,7 @@ SHELL_LIB     := $(BUILD)/libwl_shell.a
 NARRATIVE_LIB := $(BUILD)/libwl_narrative.a
 UNIT_BIN      := $(BUILD)/wl_tests
 PROBE_BIN     := $(BUILD)/narrative_probe
+PTY_BIN       := $(BUILD)/pty_test
 
 SHELL_SRCS := $(wildcard \
     src/core/*.c src/term/*.c src/lex/*.c src/parse/*.c src/ast/*.c \
@@ -47,7 +48,7 @@ DEPS := $(SHELL_OBJS:.o=.d) $(NARRATIVE_OBJS:.o=.d) \
 .DEFAULT_GOAL := all
 .DELETE_ON_ERROR:
 
-.PHONY: all test unit check-isolation asan clean
+.PHONY: all test unit check-isolation asan clean memcheck lint
 
 all: $(BIN)
 
@@ -75,6 +76,12 @@ $(PROBE_BIN): tests/isolation/probe.c $(NARRATIVE_LIB)
 	    -Wl,--whole-archive $(NARRATIVE_LIB) -Wl,--no-whole-archive \
 	    -Wl,--no-undefined
 
+# The pty test defines _DEFAULT_SOURCE itself (forkpty is not POSIX); it is a
+# test, not shell code (docs/ARCHITECTURE.md §11).
+$(PTY_BIN): tests/pty/pty_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< $(LDFLAGS) -lutil
+
 $(BUILD)/obj/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
@@ -95,9 +102,21 @@ check-isolation: $(PROBE_BIN)
 	@echo "== isolation checks =="
 	@sh scripts/check-isolation.sh
 
-test: all unit check-isolation
+test: all unit check-isolation $(PTY_BIN)
 	@echo "== CLI tests =="
 	@WL_BIN="$(BIN)" sh tests/run.sh
+	@echo "== pty tests =="
+	@$(PTY_BIN) $(BIN)
+
+# Optional developer checks; both skip nothing silently: if the tool is
+# installed, its failure is our failure.
+memcheck: $(UNIT_BIN)
+	valgrind --quiet --error-exitcode=1 --leak-check=full \
+	    --errors-for-leak-kinds=definite ./$(UNIT_BIN)
+
+lint:
+	cppcheck --quiet --error-exitcode=1 --enable=warning,performance,portability \
+	    -Iinclude/wonderland src
 
 # Same suite under ASan/UBSan, in a separate object tree so normal builds are
 # unaffected (docs/DECISIONS.md D-0014).
