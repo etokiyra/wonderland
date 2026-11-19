@@ -203,6 +203,22 @@ is a callback (`wl_capture_fn`) supplied by the executor, which keeps the
 "narrative and expansion cannot reach into process state" boundary intact
 while still allowing `$(...)` to run a sub-program.
 
+### 4.4 Implemented at M3b
+
+| Step | File |
+|------|------|
+| positional-parameter frames, `$0`, `shift` | `src/core/shell.c` |
+| compound execution, subshells, control flow, traps | `src/exec/exec.c` |
+| function table with session-lifetime arenas | `src/exec/function.c` |
+| `set`, `shift`, `trap`, `return`, `break`, `continue`, `:` | `src/builtins/builtins.c` |
+| flag-only signal handlers for trapped signals | `src/jobs/signal.c` |
+| script files, argument passing, EXIT trap, source tracking | `src/main.c`, `src/core/opts.c` |
+| differential harness (dash + bash) | `tests/diff.sh`, `tests/cases/` |
+
+Function bodies are the one AST that must outlive a parse unit; they are
+re-parsed into their own arenas rather than keeping the per-line arena alive
+(D-0070).
+
 ## 5. Core data model
 
 ```c

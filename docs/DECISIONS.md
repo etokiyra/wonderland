@@ -774,6 +774,118 @@ quoted shell word. Bodies are still stored raw (D-0054).
 * Expansion happens in the parent; a command substitution that never finishes
   blocks the shell, exactly like any other foreground child.
 
+---
+
+## §10. Milestone 3b implementation decisions
+
+### D-0069 — Positional parameters are frames; `"$@"` is special-cased
+**2026-11-19 · accepted**
+
+`core/shell.c` keeps a stack of positional frames: `$0` plus `$1..$n`. The base
+frame is the script/`-c` invocation; each function call pushes a frame and pops
+it on return. `shift` edits the current frame, and `set --` replaces it
+(copying `$0` before the clear, which fixed a real use-after-free found by
+ASan). `$#`, `$1`, `$*` and `${10}` read the frame.
+
+`"$@"` as a *whole word* produces one field per parameter, including empty
+ones. When it is adjacent to other text (`pre"$@"`), it joins like `"$*"`
+instead; that is a documented limitation (D-0076), not an accident.
+
+### D-0070 — Function bodies are re-parsed into a session-lifetime arena
+**2026-11-19 · accepted**
+
+The parse arena is reset after every command, so a function body cannot stay in
+it. On definition the executor copies the definition's source text, re-parses
+it into an arena owned by the function entry, and keeps the body node. This
+keeps the AST allocator rules intact (no per-node free, no GC) at the cost of
+one parse per definition. Redefinition replaces the body and frees the old
+arena. Functions share the caller's variables (no `local` yet) and run in the
+current shell, as POSIX requires.
+
+### D-0071 — Groups run in place; subshells fork; compounds can be pipeline stages
+**2026-11-19 · accepted**
+
+`{ ...; }` executes in the current shell, with its redirections applied through
+the same fd save/restore used for builtins. `( ... )` forks and exits with the
+body's status, so variable and cwd changes cannot leak. A compound command in a
+pipeline (`{ echo x; } | cat`) becomes a pipeline stage that runs its whole node
+in the child; a function used as a stage runs in the child too. This is what
+makes `if ...; fi | cmd` behave, and it stays within the existing process-group
+model.
+
+### D-0072 — break/continue/return unwind with counters
+**2026-11-19 · accepted**
+
+`break N` sets a pending count; each enclosing loop decrements and either
+breaks (`break`) or continues/propagates (`continue`, where `N>1` breaks out one
+level). Loops increment `loop_depth`, and a function call resets the loop depth
+and the pending counts, because a loop in the caller is not a loop in the
+function. `return` sets a flag plus status; the function call restores
+`$?` from it. Using `break`/`continue` outside a loop or `return` outside a
+function is an error with status 1, not a silent no-op.
+
+### D-0073 — Traps are strings dispatched between commands
+**2026-11-19 · accepted**
+
+`trap ACTION EXIT|INT|TERM` stores the action string on the shell.
+`trap - SIG` clears it; `trap` with no arguments lists them. Signal handlers
+still only set a flag. `INT`/`TERM` traps are dispatched after each command
+(`wl_exec_node`) and, for `INT`, when the read loop is interrupted; `TERM` is
+installed only when a trap exists. The `EXIT` trap runs at shutdown with the
+original status preserved unless the trap itself calls `exit`. Trap dispatch is
+suppressed while another trap runs (`trap_depth`), so a trap cannot re-enter
+itself.
+
+Limitation: a trap for `INT` is not run asynchronously while a long external
+command runs; it is dispatched after the command or at the next prompt. That is
+observable and documented (D-0076).
+
+### D-0074 — `set` options are implemented with explicit approximations
+**2026-11-19 · accepted**
+
+`set -e/-u/-x/-n`, `set +e...`, `set -- args`, and bare `set` (print variables)
+are supported. The rules:
+
+* `-e` is suppressed while evaluating an `if`/`while`/`until` condition, the
+  non-final side of `&&`/`||`, and a `!` pipeline. It stops the shell in
+  non-interactive mode; an interactive shell records the status and keeps
+  going. This is the common case, not a proof of the POSIX clause.
+* `-u` errors on expanding an unset *named or positional* parameter that has no
+  default operator; `$@`, `$*`, `$?`, `$$`, `$#` remain valid.
+* `-x` prints `+ command args` to stderr before dispatch.
+* `-n` makes every subsequent node a no-op (read but never execute); turning it
+  off again is not supported.
+
+### D-0075 — Script files and the differential harness
+**2026-11-19 · accepted**
+
+`wonderland script.sh arg...` reads the file (bounded by `WL_SOURCE_MAX`),
+executes it non-interactively, and sets `$0` to the path and `$1..` to the
+arguments. `-c CMD name args` follows the POSIX convention: `$0=name`,
+`$1..=args`. A missing script exits 127 with the `fopen` error; a syntax error
+exits 2.
+
+`tests/diff.sh` runs every `tests/cases/*.sh` under Wonderland, dash and bash
+in a clean environment and requires stdout and status to agree with both. It
+skips visibly when either reference shell is missing (`WL_REQUIRE_DIFF=1`
+turns that into a failure). Fourteen cases cover words, variables, splitting,
+redirections, pipes, if, loops, case, functions, subshells, status, heredocs,
+positional parameters and EXIT traps.
+
+### D-0076 — Remaining shell gaps after M3b
+**2026-11-19 · accepted**
+
+* No job control (`&` is still refused), no history, no line editor, no
+  completion; `Ctrl-Z` remains a no-op (D-0051).
+* `local`, `read`, `exec`, `command`, `type`, `wait`, `getopts`, `umask`,
+  `ulimit`, `source`/`.` are not implemented.
+* `"$@"` adjacent to other text joins instead of producing multiple fields.
+* Non-whitespace `IFS` collapses repeated delimiters (D-0060).
+* Traps for INT/TERM are dispatched between commands, not asynchronously.
+* `set -e` follows the common suppression rule, not every POSIX corner.
+* Functions cannot be exported or unset individually; redefining replaces.
+* `return` at top level is an error rather than a `exit` alias, matching dash.
+
 ### D-0051 — Ctrl-Z is a no-op until M4; non-interactive children share the group
 **2026-11-19 · accepted**
 

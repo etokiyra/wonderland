@@ -34,10 +34,11 @@ classic shell correctness swamp.
 *Mitigations:* the lexer records the quoted flag per word part and the
 expander carries `quoted`/`split` per byte (D-0060), so nothing re-scans text;
 the `${x:-a b}` vs `${x:-"a b"}` distinction was verified against dash and
-bash (D-0061); splitting and globbing have CLI cases; the differential harness
-is the M3b deliverable that turns this into evidence rather than intent.
-*Early warning:* tests that only check "roughly the right output"; any code
-that re-tokenises a string in the expander.
+bash (D-0061); 14 differential cases now compare stdout and status against both
+reference shells on every `make test`; remaining gaps are written down
+(D-0068, D-0076).
+*Early warning:* a case added to `tests/cases/` that only matches one shell;
+tests that check "roughly the right output".
 
 ### R4. Job control and terminal ownership races
 **Likelihood: high. Impact: unusable terminal, orphaned processes, data loss

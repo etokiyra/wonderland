@@ -26,12 +26,12 @@ Repository docs are normative:
 | `docs/ROADMAP.md` | milestone order and exit criteria |
 | `docs/RISKS.md` | known failure modes and tripwires |
 
-Current status: Milestone 3a (2026-11-19). Expansion (parameters, command
-substitution, arithmetic, tilde, IFS splitting, globbing), variables,
-`export`/`unset`, redirections (including here-documents), and multi-stage
-pipelines work. Control flow, functions, `trap`, `set`, job control, history
-and narrative code do not, and constructs that are parsed but not executable
-are refused with status 2. Do not describe the project as a usable daily shell.
+Current status: Milestone 3b (2026-11-19). Variables, expansion, redirections,
+pipelines, control flow, functions, positional parameters, traps, `set`, and
+script files work; 14 differential cases agree with dash and bash. Job control
+(`&`, `jobs`, `fg`, `bg`), history and the line editor do not, and neither do
+`local`, `read`, `exec`, `wait`, `command`. Do not describe the project as a
+daily driver yet.
 
 ## 2. Non-negotiable safety rules
 
@@ -61,7 +61,8 @@ the world feel better.
 
 ```sh
 make                  # build build/wonderland
-make test             # unit tests + CLI tests + pty test + isolation checks
+make test             # unit + CLI + pty + isolation + differential tests
+make diff             # differential cases only (needs dash and bash)
 make asan             # rebuild with ASan/UBSan and run the same suite
 make memcheck         # unit suite under valgrind (developer tool)
 make lint             # cppcheck over src/ (developer tool)

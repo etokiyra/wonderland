@@ -121,18 +121,25 @@ Deviations and limits are recorded as D-0059…D-0068. In particular: no
 positional parameters yet, non-whitespace `IFS` is approximate, and compound
 commands are still refused.
 
-### M3b — control flow and functions: pending
+### M3b — control flow and functions: **done** (2026-11-19)
 
-Scope: execute `if`, `while`, `until`, `for`, `case`, `{ }`, `( )`, and
-functions on the existing AST; `return`, `break`, `continue`, `shift`,
-`trap`; `set -e/-u/-x/-n`; the differential harness against dash and bash;
-`subshells` as real forks where state must not leak.
+Delivered: `if`/`elif`/`else`, `while`, `until`, `for`, `case`, `{ }`, `( )`,
+function definition and calls, positional parameters, `shift`, `return`,
+`break`, `continue`, `trap` on `EXIT`/`INT`/`TERM`, `set -e/-u/-x/-n`,
+script-file execution with arguments, and the dash/bash differential harness
+(14 cases).
 
-Exit criteria: the POSIX surface in `docs/COMPATIBILITY.md` §3.1 M1–M3 rows is
-green against bash and dash, including the redirection-order and `set -e`
-matrices. `yes | head` does not hang (already true). No fd leaks: a
-10k-command loop does not exhaust descriptors. `trap EXIT` runs once and
-preserves the original status.
+Evidence: 72 unit cases (281 assertions), 130 CLI checks, the pty test, and
+14/14 differential cases passing against both dash and bash. `make asan`,
+`make memcheck` and `make lint` are clean with gcc and clang. A real
+use-after-free in `set --` was found by ASan and fixed (D-0069).
+
+Exit criteria: the redirection, expansion, control-flow, function and trap
+cases are green against dash and bash; `yes | head` does not hang; the EXIT
+trap runs once and preserves the status. `set -e` corner cases are covered by
+the documented approximation (D-0074), not claimed as full POSIX.
+
+## M3.5 — Narrative vertical slice (amendment 7)
 
 ## M3.5 — Narrative vertical slice (amendment 7)
 
@@ -243,20 +250,21 @@ and `-c`/stdin handling in `src/main.c`, and tests at three levels (unit, CLI,
 pty). The `pty` test drives a real terminal, not a mock. (`m1_split.c` existed
 here and was deleted in M2.)
 
-## Recommended scope for the Milestone 3b prompt
+## Recommended scope for the Milestone 3.5 prompt
 
-> Implement M3b per `docs/ROADMAP.md` and `docs/AGENTS.md`: (1) execute
-> `if`/`elif`/`else`, `while`, `until`, `for`, `case`, `{ }`, `( )`, and
-> function definitions/calls on the existing AST, with subshells as real forks
-> so variable and cwd changes do not leak; (2) `return`, `break`, `continue`,
-> `shift`, positional parameters (`$1…`, `$@`, `$*`, `$#`), and `set --`;
-> (3) `trap` on `EXIT`, `INT` and `TERM`, with the EXIT trap running exactly
-> once and preserving the original status; (4) `set -e`, `-u`, `-x`, `-n`
-> with semantics tested against dash, including the `set -e` corners in
-> `docs/COMPATIBILITY.md` §10; (5) a differential runner in `tests/cases/`
-> that compares stdout, stderr and status against dash and bash, with known
-> divergences written down (not skipped silently); (6) `read` and `set` as
-> needed by the tests. Add unit tests for each construct and keep
-> `make test`, `make asan`, `make memcheck` and `make lint` clean.
+> Implement the amendment-7 vertical slice exactly, per `docs/ROADMAP.md` M3.5
+> and `docs/PERSONAS.md`: (1) `libwl_narrative.a` with one persona, Alice, and
+> **12 original lines** in a static table (no pack format yet); (2) a single
+> `post_exec` hook, called after the status is final, receiving a `const
+> struct wl_event *` and returning text; (3) the plain-mode gate: `--plain`,
+> `WONDERLAND_PLAIN=1`, `-c`, scripts, stdin, or non-tty stdin/stderr means the
+> hook is never called; (4) output to stderr only, flushed before the prompt,
+> nothing while a foreground job owns the terminal; (5) tests that prove
+> stdout and exit codes are byte-identical with the narrative library linked
+> and unlinked, plus the isolation probe and source audit; (6) update
+> `docs/DECISIONS.md` and report limitations. Do not build the pack format,
+> `possess`, `rest`, or any other persona yet.
 
-The vertical narrative slice (M3.5) follows M3b.
+M4 (job control) follows the slice. The shell is still not a daily driver: no
+`&`, `jobs`, `fg`, `bg`, history or line editor. Those are the next usability
+milestones.

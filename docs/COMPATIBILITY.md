@@ -67,10 +67,16 @@ specification, not against another shell.
 | Prompt shape, `$?` display, HOME abbreviation | `tests/unit/test_prompt.c`, `tests/pty/pty_test.c` |
 | Ctrl-C at the prompt; unchanged termios | `tests/pty/pty_test.c` |
 | Ctrl-Z is a no-op, does not wedge the shell (D-0051) | `tests/pty/pty_test.c` |
-| Grammar: compounds, functions, `${...}` operators | parsed and dumped (`tests/unit/test_ast.c`); execution is M3b |
+| `if`/`elif`/`else`, `while`, `until`, `for`, `case` | `tests/cases/06–08`, `tests/run.sh`, `tests/diff.sh` |
+| Functions, `return`, recursion, positional parameters, `shift`, `set --` | `tests/cases/09`, `tests/cases/13`, `tests/run.sh` |
+| `{ }` groups and `( )` subshells (state isolation) | `tests/cases/10`, `tests/run.sh`, `tests/diff.sh` |
+| `break`, `continue`, including `N` levels | `tests/cases/07`, `tests/run.sh` |
+| `trap` on `EXIT`, `INT`, `TERM` | `tests/cases/14`, `tests/run.sh` |
+| `set -e`, `-u`, `-x`, `-n` (documented approximations) | `tests/run.sh`, D-0074 |
+| Script files with arguments; `-c CMD name args` | `tests/run.sh` |
+| Differential agreement with dash and bash | `tests/diff.sh`, 14 cases |
 | Syntax diagnostics with line, column and caret | `tests/unit/test_ast.c`, `tests/run.sh` |
-| Executing `if`/`for`/`while`/`case`, functions, subshells, background `&` | **refused with status 2** (M3b/M4) |
-| `set -e/-u/-x`, `trap`, positional parameters, non-whitespace `IFS` exactness | **not implemented** (D-0068) |
+| Background `&`, job control, non-whitespace `IFS` exactness, `"pre$@"` adjacency | **not implemented** (M4, D-0068, D-0076) |
 
 ### 3.1 POSIX surface
 
@@ -140,9 +146,14 @@ A feature is **supported** only when all of the following hold:
 
 ## 5. Differential test harness (design)
 
-Status: not implemented. The runner below is the plan for M2–M3; until it
-exists, the M1 tests in §3.0 are regression tests against our own behaviour,
-not against another shell. Do not upgrade them into a compatibility claim.
+Status: implemented as `tests/diff.sh` for the M3b surface. It runs every
+`tests/cases/*.sh` under Wonderland, dash and bash in a clean environment and
+requires stdout and status to agree with both; stderr is excluded because
+diagnostic wording is not standardised. It skips visibly when either reference
+shell is missing, and `WL_REQUIRE_DIFF=1` turns that skip into a failure. The
+cases currently cover 14 areas (words, variables, splitting, redirections,
+pipes, if, loops, case, functions, subshells, status, heredocs, parameters,
+traps). Features not covered by a case are not "supported", only implemented.
 
 ```
 tests/cases/<area>/<name>.sh     the script under test
