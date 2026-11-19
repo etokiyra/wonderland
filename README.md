@@ -105,6 +105,29 @@ make lint            # cppcheck over src/ (if installed)
 Requirements: a C17 compiler, GNU Make, a POSIX shell. Optional developer
 tools: `valgrind`, `cppcheck`, `dash` (required for `make diff`).
 
+## Install it to try it
+
+```sh
+make install        # installs ~/.local/bin/wonderland (PREFIX=... to override)
+wonderland          # start it from your current shell
+```
+
+`~/.local/bin` must be on `PATH` (it is on this machine). The install target
+does **not** touch `/etc/shells`, does not use `chsh`, and does not change your
+login shell: Wonderland is just another command you start and leave with
+`exit` or Ctrl-D. `make uninstall` removes the binary.
+
+A few things worth trying in the first session:
+
+* `echo hello` then press Up, then Ctrl-A and edit the line.
+* `ech<TAB>` completes the command; Tab on paths completes files.
+* `sleep 30 &`, then `jobs`, `fg`, Ctrl-Z, `jobs`, `bg`.
+* `for i in 1 2 3; do echo $i; done`, a function with `$1`, and a here-doc.
+* `false` and watch Alice answer; `wonderland --plain` keeps her quiet.
+* `trap 'echo bye' EXIT; echo hi`, then exit.
+
+The history file lands in `$XDG_STATE_HOME/wonderland/history` (mode 0600).
+
 ## Layout
 
 ```

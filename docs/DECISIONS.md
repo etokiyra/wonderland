@@ -1111,3 +1111,26 @@ example pack from M0 remains the format's reference.
 * The `exit` event is not wired into the shell's exit path yet; only
   `post_exec` is emitted (the exit lines exist for M6/M7).
 * Narrative text is not localised and lives in C strings.
+
+---
+
+## §14. Distribution
+
+### D-0095 — `make install` is user-local and never registers a login shell
+**2026-11-19 · accepted**
+
+`make install` copies the binary to `$(PREFIX)/bin`, with `PREFIX` defaulting
+to `$(HOME)/.local` and `DESTDIR` supported. It does not edit `/etc/shells`,
+run `chsh`, or install a configuration file; the shell is started like any
+other command. This resolves the default side of OQ-7 while leaving packaging
+and a possible `/usr/local` choice to M8. Users can override with
+`make install PREFIX=/usr/local` when they know what they are doing, but the
+documented path keeps the shell beside the login shell.
+
+### D-0096 — Version string says what this is
+**2026-11-19 · accepted**
+
+`--version` prints `wonderland 0.5.0 (M5; narrative slice)`. The version stays
+below 1.0 until the dogfooding gate in `docs/COMPATIBILITY.md` §9 is met, and
+the parenthetical names the milestone instead of implying a finished shell.
+It is a factual label, not a compatibility claim (D-0010).

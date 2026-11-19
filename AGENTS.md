@@ -70,7 +70,11 @@ make asan             # rebuild with ASan/UBSan and run the same suite
 make memcheck         # unit suite under valgrind (developer tool)
 make lint             # cppcheck over src/ (developer tool)
 make clean            # remove build/
+make install          # ~/.local/bin/wonderland (PREFIX=... to override)
 ```
+
+`make install` is user-local by design: no `/etc/shells` entry, no `chsh`
+(amendment 4).
 
 Requirements: C17 compiler (GCC or Clang), GNU Make, POSIX shell for
 `tests/run.sh`. Optional but recommended: `dash` for differential tests,

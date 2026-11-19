@@ -249,7 +249,9 @@ run a matrix with mechanics on/off and diff statuses).
 Scope: selected Bash extensions (`${var//a/b}`, `<<<`, `local`, `pipefail`,
 `[[ ]]`, arrays last), broader test suite, memory/resource audit (ASan, leak
 checks), documentation pass, installation instructions that keep the shell
-*beside* bash, example packs, `make install` (prefix decision).
+*beside* bash, example packs. `make install` exists now and installs to
+`~/.local/bin` by default (D-0095); packaging and a `/usr/local` decision
+remain M8 work.
 
 Exit criteria: extended matrix green; no known leaks; `/etc/shells` guidance
 still says "not yet"; README claims match `docs/COMPATIBILITY.md`.
