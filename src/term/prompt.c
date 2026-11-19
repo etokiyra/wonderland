@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
 
 /*
  * Prompt formatting. Pure: the caller supplies cwd and HOME, and decides where
@@ -226,15 +228,13 @@ bool wl_prompt_git(const char *cwd, char *buf, size_t cap) {
     return false;
 }
 
-size_t wl_prompt_visible_width(const char *text) {
+size_t wl_prompt_visible_width_n(const char *text, size_t length) {
     size_t width = 0;
     size_t index = 0;
-    size_t length;
 
     if (text == NULL) {
         return 0;
     }
-    length = strlen(text);
     while (index < length) {
         unsigned char c = (unsigned char)text[index];
 
@@ -282,6 +282,10 @@ size_t wl_prompt_visible_width(const char *text) {
     return width;
 }
 
+size_t wl_prompt_visible_width(const char *text) {
+    return (text != NULL) ? wl_prompt_visible_width_n(text, strlen(text)) : 0;
+}
+
 static void wl_prompt_duration(char *buf, size_t cap, long duration_ms) {
     if (duration_ms < 60000) {
         (void)snprintf(buf, cap, "%.2fs", (double)duration_ms / 1000.0);
@@ -289,6 +293,269 @@ static void wl_prompt_duration(char *buf, size_t cap, long duration_ms) {
         (void)snprintf(buf, cap, "%ldm%02lds", duration_ms / 60000,
                        (duration_ms / 1000) % 60);
     }
+}
+
+/* Starship/humantime-ish duration: 42ms, 1.2s, 1m 03s. */
+static void wl_starship_duration(char *buf, size_t cap, long duration_ms) {
+    if (duration_ms < 1000) {
+        (void)snprintf(buf, cap, "%ldms", duration_ms);
+    } else if (duration_ms < 60000) {
+        long seconds = duration_ms / 1000;
+        long tenths = (duration_ms % 1000) / 100;
+
+        if (tenths == 0) {
+            (void)snprintf(buf, cap, "%lds", seconds);
+        } else {
+            (void)snprintf(buf, cap, "%ld.%lds", seconds, tenths);
+        }
+    } else {
+        (void)snprintf(buf, cap, "%ldm %02lds", duration_ms / 60000,
+                       (duration_ms / 1000) % 60);
+    }
+}
+
+static void wl_pb_sgr(struct wl_prompt_builder *builder,
+                      const struct wl_prompt_style *style, const char *code) {
+    if (style->color) {
+        wl_pb_str(builder, code);
+    }
+}
+
+static void wl_pb_reset(struct wl_prompt_builder *builder,
+                        const struct wl_prompt_style *style) {
+    if (style->color) {
+        wl_pb_str(builder, "\x1b[0m");
+    }
+}
+
+/* Points at the start of the last `count` slash-separated components. */
+static const char *wl_last_components(const char *path, unsigned count) {
+    const char *cursor = path + strlen(path);
+    unsigned seen = 0;
+
+    while (cursor > path) {
+        cursor--;
+        if (*cursor == '/' && cursor[1] != '\0') {
+            seen++;
+            if (seen == count) {
+                return cursor + 1;
+            }
+        }
+    }
+    return path;
+}
+
+static void wl_starship_path(char *out, size_t cap, const char *cwd,
+                             const char *home, bool icons) {
+    size_t home_len = (home != NULL) ? strlen(home) : 0;
+    const char *home_symbol = icons ? "\xe2\x8c\x82" : "~";
+    const char *ellipsis = icons ? "\xe2\x80\xa6" : "...";
+
+    if (cwd == NULL || cwd[0] == '\0') {
+        (void)snprintf(out, cap, "%s", home_symbol);
+        return;
+    }
+    if (home_len > 0 && strncmp(cwd, home, home_len) == 0 &&
+        (cwd[home_len] == '\0' || cwd[home_len] == '/')) {
+        const char *rest = cwd + home_len;
+        const char *tail;
+
+        if (*rest == '/') {
+            rest++;
+        }
+        if (*rest == '\0') {
+            (void)snprintf(out, cap, "%s", home_symbol);
+            return;
+        }
+        tail = wl_last_components(rest, 2);
+        if (tail == rest) {
+            (void)snprintf(out, cap, "%s/%s", home_symbol, rest);
+        } else {
+            (void)snprintf(out, cap, "%s/%s", ellipsis, tail);
+        }
+        return;
+    }
+
+    {
+        const char *tail = wl_last_components(cwd, 2);
+
+        if (tail == cwd || tail == cwd + 1) {
+            (void)snprintf(out, cap, "%s", cwd);
+        } else {
+            (void)snprintf(out, cap, "%s/%s", ellipsis, tail);
+        }
+    }
+}
+
+static void wl_starship_branch(char *out, size_t cap, const char *branch,
+                               bool icons) {
+    size_t length;
+
+    if (branch == NULL || branch[0] == '\0' || strcmp(branch, "main") == 0 ||
+        strcmp(branch, "master") == 0) {
+        out[0] = '\0';
+        return;
+    }
+    length = strlen(branch);
+    if (length > 11) {
+        (void)snprintf(out, cap, "%.11s%s", branch, icons ? "\xe2\x8b\xaf" : "...");
+    } else {
+        (void)snprintf(out, cap, "%s", branch);
+    }
+}
+
+bool wl_prompt_is_repo_root(const char *cwd) {
+    char dot_git[WL_PROMPT_GIT_PATH];
+    struct stat info;
+
+    if (cwd == NULL || cwd[0] != '/') {
+        return false;
+    }
+    if (!wl_prompt_join(dot_git, sizeof dot_git, cwd, ".git")) {
+        return false;
+    }
+    return stat(dot_git, &info) == 0 &&
+           (S_ISDIR(info.st_mode) || S_ISREG(info.st_mode));
+}
+
+size_t wl_prompt_format_starship(char *left, size_t left_cap, char *right,
+                                 size_t right_cap,
+                                 const struct wl_prompt_info *info,
+                                 const struct wl_prompt_style *style) {
+    struct wl_prompt_builder left_builder;
+    struct wl_prompt_builder right_builder;
+    struct wl_prompt_style plain = {false, false};
+    char text[WL_PROMPT_BUFFER];
+    char path[WL_PROMPT_BUFFER];
+    bool read_only;
+
+    if (style == NULL) {
+        style = &plain;
+    }
+    if (info == NULL) {
+        return 0;
+    }
+    left_builder.buf = left;
+    left_builder.cap = left_cap;
+    left_builder.len = 0;
+    right_builder.buf = right;
+    right_builder.cap = right_cap;
+    right_builder.len = 0;
+    if (left_cap > 0) {
+        left[0] = '\0';
+    }
+    if (right_cap > 0) {
+        right[0] = '\0';
+    }
+
+    /* Left: duration, jobs, user, character. */
+    if (info->duration_ms >= 0) {
+        wl_starship_duration(text, sizeof text, info->duration_ms);
+        wl_pb_sgr(&left_builder, style, "\x1b[3;37m");
+        if (style->icons) {
+            wl_pb_str(&left_builder, "\xe2\x97\x84 ");
+        }
+        wl_pb_str(&left_builder, text);
+        wl_pb_str(&left_builder, " ");
+        wl_pb_reset(&left_builder, style);
+    }
+    if (info->job_count > 0) {
+        (void)snprintf(text, sizeof text, "%u", info->job_count);
+        if (style->icons) {
+            wl_pb_sgr(&left_builder, style, "\x1b[3;34m");
+            wl_pb_str(&left_builder, "\xe2\x96\xb6");
+            wl_pb_reset(&left_builder, style);
+            wl_pb_sgr(&left_builder, style, "\x1b[37m");
+            wl_pb_str(&left_builder, text);
+            wl_pb_reset(&left_builder, style);
+            wl_pb_str(&left_builder, " ");
+        } else {
+            wl_pb_str(&left_builder, "[");
+            wl_pb_str(&left_builder, text);
+            wl_pb_str(&left_builder, "] ");
+        }
+    }
+    if (info->show_user && info->user != NULL && info->user[0] != '\0') {
+        wl_pb_sgr(&left_builder, style, "\x1b[1;3;93m");
+        if (style->icons) {
+            wl_pb_str(&left_builder, "\xe2\xad\x98 ");
+        }
+        wl_pb_str(&left_builder, info->user);
+        wl_pb_reset(&left_builder, style);
+        wl_pb_str(&left_builder, " ");
+    }
+    if (info->last_status != 0) {
+        wl_pb_sgr(&left_builder, style, "\x1b[3;35m");
+        wl_pb_str(&left_builder, style->icons ? "\xe2\x97\x8b" : "!");
+    } else {
+        wl_pb_sgr(&left_builder, style, "\x1b[1;3;93m");
+        wl_pb_str(&left_builder, style->icons ? "\xe2\x97\x8e" : ">");
+    }
+    wl_pb_reset(&left_builder, style);
+    wl_pb_str(&left_builder, " ");
+
+    /* Right: directory, branch, time. */
+    wl_starship_path(path, sizeof path, info->cwd, info->home, style->icons);
+    read_only = (info->cwd != NULL) && access(info->cwd, W_OK) != 0;
+    wl_pb_sgr(&right_builder, style,
+              info->repo_root ? "\x1b[1;34m" : "\x1b[3;34m");
+    wl_pb_str(&right_builder, path);
+    wl_pb_reset(&right_builder, style);
+    if (read_only) {
+        wl_pb_sgr(&right_builder, style, "\x1b[31m");
+        wl_pb_str(&right_builder, style->icons ? " \xe2\x97\x88" : " (ro)");
+        wl_pb_reset(&right_builder, style);
+    }
+    if (info->repo_root) {
+        wl_pb_sgr(&right_builder, style, "\x1b[1;94m");
+        wl_pb_str(&right_builder, style->icons ? " \xe2\x96\xb3" : " *");
+        wl_pb_reset(&right_builder, style);
+    }
+    if (info->git_branch != NULL && info->git_branch[0] != '\0') {
+        wl_starship_branch(text, sizeof text, info->git_branch, style->icons);
+        if (text[0] != '\0') {
+            if (style->icons) {
+                wl_pb_str(&right_builder, " ");
+                wl_pb_sgr(&right_builder, style, "\x1b[3;94m");
+                wl_pb_str(&right_builder, text);
+            } else {
+                wl_pb_sgr(&right_builder, style, "\x1b[3;94m");
+                wl_pb_str(&right_builder, " (");
+                wl_pb_str(&right_builder, text);
+                wl_pb_str(&right_builder, ")");
+            }
+            wl_pb_reset(&right_builder, style);
+        }
+    }
+    if (info->time_text != NULL) {
+        (void)snprintf(text, sizeof text, "%s", info->time_text);
+    } else {
+        time_t now = time(NULL);
+        struct tm local;
+
+        text[0] = '\0';
+        if (now != (time_t)-1 && localtime_r(&now, &local) != NULL) {
+            (void)strftime(text, sizeof text, "%H:%M", &local);
+        }
+    }
+    if (text[0] != '\0') {
+        wl_pb_sgr(&right_builder, style, "\x1b[2;3;37m");
+        wl_pb_str(&right_builder, " ");
+        wl_pb_str(&right_builder, text);
+        wl_pb_reset(&right_builder, style);
+    }
+
+    if (left_cap > 0) {
+        size_t end = (left_builder.len < left_cap) ? left_builder.len
+                                                   : left_cap - 1;
+        left[end] = '\0';
+    }
+    if (right_cap > 0) {
+        size_t end = (right_builder.len < right_cap) ? right_builder.len
+                                                     : right_cap - 1;
+        right[end] = '\0';
+    }
+    return left_builder.len;
 }
 
 size_t wl_prompt_format_ex(char *buf, size_t cap, int last_status,

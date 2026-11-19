@@ -126,6 +126,133 @@ static void wl_make_head_path(char *out, size_t cap, const char *directory) {
     memcpy(out + length, "/HEAD", 6);
 }
 
+WL_TEST(starship_stock_prompt_is_left_and_right) {
+    char left[PROMPT_CAP];
+    char right[PROMPT_CAP];
+    struct wl_prompt_style style = {true, true};
+    struct wl_prompt_info info;
+
+    memset(&info, 0, sizeof info);
+    info.cwd = "/tmp";
+    info.git_branch = "feature/x";
+    info.job_count = 2;
+    info.duration_ms = 420;
+    info.time_text = "12:34";
+
+    (void)wl_prompt_format_starship(left, sizeof left, right, sizeof right,
+                                    &info, &style);
+    WL_ASSERT_STR_EQ(left,
+                     "\x1b[3;37m\xe2\x97\x84 420ms \x1b[0m"
+                     "\x1b[3;34m\xe2\x96\xb6\x1b[0m"
+                     "\x1b[37m2\x1b[0m "
+                     "\x1b[1;3;93m\xe2\x97\x8e\x1b[0m ");
+    WL_ASSERT_STR_EQ(right,
+                     "\x1b[3;34m/tmp\x1b[0m"
+                     " \x1b[3;94mfeature/x\x1b[0m"
+                     "\x1b[2;3;37m 12:34\x1b[0m");
+}
+
+WL_TEST(starship_failure_uses_the_ring) {
+    char left[PROMPT_CAP];
+    char right[PROMPT_CAP];
+    struct wl_prompt_style style = {true, true};
+    struct wl_prompt_info info;
+
+    memset(&info, 0, sizeof info);
+    info.last_status = 7;
+    info.cwd = "/tmp";
+    info.duration_ms = -1;
+    info.time_text = "12:34";
+
+    (void)wl_prompt_format_starship(left, sizeof left, right, sizeof right,
+                                    &info, &style);
+    WL_ASSERT_STR_EQ(left, "\x1b[3;35m\xe2\x97\x8b\x1b[0m ");
+    WL_ASSERT_STR_EQ(right,
+                     "\x1b[3;34m/tmp\x1b[0m"
+                     "\x1b[2;3;37m 12:34\x1b[0m");
+}
+
+WL_TEST(starship_ascii_fallback_and_main_is_ignored) {
+    char left[PROMPT_CAP];
+    char right[PROMPT_CAP];
+    struct wl_prompt_style style = {false, false};
+    struct wl_prompt_info info;
+
+    memset(&info, 0, sizeof info);
+    info.last_status = 1;
+    info.cwd = "/tmp";
+    info.git_branch = "main";
+    info.job_count = 1;
+    info.duration_ms = 420;
+    info.time_text = "12:34";
+
+    (void)wl_prompt_format_starship(left, sizeof left, right, sizeof right,
+                                    &info, &style);
+    WL_ASSERT_STR_EQ(left, "420ms [1] ! ");
+    WL_ASSERT_STR_EQ(right, "/tmp 12:34");
+}
+
+WL_TEST(starship_repo_root_and_user) {
+    char left[PROMPT_CAP];
+    char right[PROMPT_CAP];
+    struct wl_prompt_style style = {true, true};
+    struct wl_prompt_info info;
+
+    memset(&info, 0, sizeof info);
+    info.cwd = "/tmp";
+    info.git_branch = "main";
+    info.repo_root = true;
+    info.show_user = true;
+    info.user = "kiyra";
+    info.duration_ms = -1;
+    info.time_text = "12:34";
+
+    (void)wl_prompt_format_starship(left, sizeof left, right, sizeof right,
+                                    &info, &style);
+    WL_ASSERT_STR_EQ(left,
+                     "\x1b[1;3;93m\xe2\xad\x98 kiyra\x1b[0m "
+                     "\x1b[1;3;93m\xe2\x97\x8e\x1b[0m ");
+    WL_ASSERT_STR_EQ(right,
+                     "\x1b[1;34m/tmp\x1b[0m"
+                     "\x1b[1;94m \xe2\x96\xb3\x1b[0m"
+                     "\x1b[2;3;37m 12:34\x1b[0m");
+}
+
+WL_TEST(starship_branch_is_truncated) {
+    char left[PROMPT_CAP];
+    char right[PROMPT_CAP];
+    struct wl_prompt_style style = {true, true};
+    struct wl_prompt_info info;
+
+    memset(&info, 0, sizeof info);
+    info.cwd = "/tmp";
+    info.git_branch = "feature/verylong";
+    info.duration_ms = -1;
+    info.time_text = "12:34";
+
+    (void)wl_prompt_format_starship(left, sizeof left, right, sizeof right,
+                                    &info, &style);
+    WL_ASSERT(strstr(right, "feature/ver\xe2\x8b\xaf") != NULL);
+}
+
+WL_TEST(repo_root_detection) {
+    char directory[] = "/tmp/wl-root-XXXXXX";
+    char subdirectory[256];
+
+    WL_ASSERT(mkdtemp(directory) != NULL);
+    WL_ASSERT(!wl_prompt_is_repo_root(directory));
+    (void)snprintf(subdirectory, sizeof subdirectory, "%s/.git", directory);
+    WL_ASSERT(mkdir(subdirectory, 0700) == 0);
+    WL_ASSERT(wl_prompt_is_repo_root(directory));
+    (void)snprintf(subdirectory, sizeof subdirectory, "%s/sub", directory);
+    WL_ASSERT(mkdir(subdirectory, 0700) == 0);
+    WL_ASSERT(!wl_prompt_is_repo_root(subdirectory));
+    (void)rmdir(subdirectory);
+    (void)snprintf(subdirectory, sizeof subdirectory, "%s/.git", directory);
+    (void)rmdir(subdirectory);
+    (void)rmdir(directory);
+}
+
 WL_TEST(git_branch_is_read_from_dot_git) {
     char directory[] = "/tmp/wl-prompt-XXXXXX";
     char subdirectory[256];
@@ -188,4 +315,15 @@ void wl_suite_prompt(void) {
     wl_test_register("prompt: visible width",
                      visible_width_ignores_escapes_and_counts_icons_once);
     wl_test_register("prompt: git branch", git_branch_is_read_from_dot_git);
+    wl_test_register("prompt: starship left/right",
+                     starship_stock_prompt_is_left_and_right);
+    wl_test_register("prompt: starship failure",
+                     starship_failure_uses_the_ring);
+    wl_test_register("prompt: starship ASCII",
+                     starship_ascii_fallback_and_main_is_ignored);
+    wl_test_register("prompt: starship repo/user",
+                     starship_repo_root_and_user);
+    wl_test_register("prompt: starship truncation",
+                     starship_branch_is_truncated);
+    wl_test_register("prompt: repo root", repo_root_detection);
 }

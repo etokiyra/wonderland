@@ -428,10 +428,18 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
     struct wl_prompt_style style;
     bool show_git = wl_ui_enabled("WONDERLAND_GIT", true);
     bool show_duration = wl_ui_enabled("WONDERLAND_DURATION", true);
-    long last_duration_ms = 0;
+    bool starship = true;
+    long last_duration_ms = -1;
 
     style.color = wl_ui_color();
     style.icons = wl_ui_icons();
+    {
+        const char *prompt_style = getenv("WONDERLAND_PROMPT_STYLE");
+
+        if (prompt_style != NULL && strcmp(prompt_style, "classic") == 0) {
+            starship = false;
+        }
+    }
 
     if (getcwd(previous_cwd, sizeof previous_cwd) != NULL) {
         have_previous_cwd = true;
@@ -439,18 +447,27 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
 
     for (;;) {
         char prompt[512];
+        char right_prompt[512];
         char cwd[WL_PATH_MAX];
         enum wl_edit_status read_status;
         size_t length = 0;
 
+        right_prompt[0] = '\0';
         if (getcwd(cwd, sizeof cwd) == NULL) {
             (void)snprintf(cwd, sizeof cwd, "?");
         }
         if (continuing) {
-            if (style.color) {
-                (void)snprintf(prompt, sizeof prompt, "\x1b[2m> \x1b[0m");
+            if (style.icons) {
+                if (style.color) {
+                    (void)snprintf(prompt, sizeof prompt,
+                                   "\x1b[2;37m\xe2\x96\xb8\xe2\x96\xb9 "
+                                   "\x1b[0m");
+                } else {
+                    (void)snprintf(prompt, sizeof prompt, "%s",
+                                   "\xe2\x96\xb8\xe2\x96\xb9 ");
+                }
             } else {
-                (void)snprintf(prompt, sizeof prompt, "%s", "> ");
+                (void)snprintf(prompt, sizeof prompt, "%s", ">> ");
             }
         } else {
             const char *custom = getenv("WONDERLAND_PROMPT");
@@ -461,6 +478,30 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
             wl_emit_job_finishes(shell, &seen_finished, cwd);
             if (custom != NULL && custom[0] != '\0') {
                 (void)snprintf(prompt, sizeof prompt, "%s", custom);
+            } else if (starship) {
+                struct wl_prompt_info info;
+                const char *user = getenv("USER");
+                const char *ssh = getenv("SSH_CONNECTION");
+
+                if (show_git && wl_prompt_git(cwd, branch, sizeof branch)) {
+                    shown_branch = branch;
+                }
+                if (user == NULL || user[0] == '\0') {
+                    user = getenv("LOGNAME");
+                }
+                info.last_status = shell->last_status;
+                info.cwd = cwd;
+                info.home = getenv("HOME");
+                info.git_branch = shown_branch;
+                info.repo_root = show_git && wl_prompt_is_repo_root(cwd);
+                info.job_count = wl_active_jobs(shell);
+                info.duration_ms = show_duration ? last_duration_ms : -1;
+                info.show_user = geteuid() == 0 ||
+                                 (ssh != NULL && ssh[0] != '\0');
+                info.user = (user != NULL) ? user : "?";
+                (void)wl_prompt_format_starship(
+                    prompt, sizeof prompt, right_prompt, sizeof right_prompt,
+                    &info, &style);
             } else {
                 if (show_git && wl_prompt_git(cwd, branch, sizeof branch)) {
                     shown_branch = branch;
@@ -483,7 +524,16 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
             continue;
         }
 
-        read_status = wl_editor_read(editor, prompt, line + used,
+        /*
+         * OSC 133 prompt-start mark, once per primary prompt (not per
+         * continuation). Terminals such as foot use it to jump between
+         * prompts; the pty tests use it as a stable prompt boundary.
+         */
+        if (!continuing) {
+            fputs("\x1b]133;A\x1b\\", stderr);
+            fflush(stderr);
+        }
+        read_status = wl_editor_read(editor, prompt, right_prompt, line + used,
                                      sizeof line - used, &length);
         if (read_status == WL_EDIT_INTERRUPTED) {
             wl_exec_trap_dispatch(shell);

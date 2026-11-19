@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
@@ -121,17 +122,54 @@ static void wl_leave_raw(int fd, const struct termios *saved) {
     (void)tcsetattr(fd, TCSADRAIN, saved);
 }
 
+static size_t wl_terminal_columns(int fd) {
+    struct winsize size;
+    const char *columns;
+    long value;
+
+    if (ioctl(fd, TIOCGWINSZ, &size) == 0 && size.ws_col > 0) {
+        return size.ws_col;
+    }
+    columns = getenv("COLUMNS");
+    if (columns != NULL) {
+        value = strtol(columns, NULL, 10);
+        if (value > 0) {
+            return (size_t)value;
+        }
+    }
+    return 80;
+}
+
 static void wl_render(struct wl_editor *editor) {
     char sequence[32];
-    size_t column = editor->prompt_width + editor->cursor;
+    size_t columns = wl_terminal_columns(editor->write_fd);
+    size_t line_width = editor->prompt_width +
+                        wl_prompt_visible_width_n(editor->buffer,
+                                                  editor->length);
+    size_t cursor_column = editor->prompt_width +
+                           wl_prompt_visible_width_n(editor->buffer,
+                                                     editor->cursor);
+    bool show_right = editor->right_width > 0 &&
+                      columns > editor->right_width + 1 &&
+                      line_width + editor->right_width + 1 < columns;
 
     wl_write_all(editor->write_fd, "\r", 1);
     wl_write_text(editor->write_fd, editor->prompt);
     wl_write_all(editor->write_fd, editor->buffer, editor->length);
     wl_write_text(editor->write_fd, "\x1b[K");
+    if (show_right) {
+        size_t target = columns - editor->right_width;
+        size_t move = target - line_width;
+
+        if (move > 0) {
+            (void)snprintf(sequence, sizeof sequence, "\x1b[%zuC", move);
+            wl_write_text(editor->write_fd, sequence);
+        }
+        wl_write_text(editor->write_fd, editor->right_prompt);
+    }
     wl_write_all(editor->write_fd, "\r", 1);
-    if (column > 0) {
-        (void)snprintf(sequence, sizeof sequence, "\x1b[%zuC", column);
+    if (cursor_column > 0) {
+        (void)snprintf(sequence, sizeof sequence, "\x1b[%zuC", cursor_column);
         wl_write_text(editor->write_fd, sequence);
     }
 }
@@ -531,8 +569,10 @@ static int wl_read_key(int fd) {
     }
 }
 
-enum wl_edit_status wl_editor_read(struct wl_editor *editor, const char *prompt,
-                                   char *out, size_t capacity, size_t *length) {
+enum wl_edit_status wl_editor_read(struct wl_editor *editor,
+                                   const char *prompt,
+                                   const char *right_prompt, char *out,
+                                   size_t capacity, size_t *length) {
     struct termios saved;
     enum wl_edit_status result = WL_EDIT_OK;
     bool raw;
@@ -542,6 +582,9 @@ enum wl_edit_status wl_editor_read(struct wl_editor *editor, const char *prompt,
     }
     (void)snprintf(editor->prompt, sizeof editor->prompt, "%s", prompt);
     editor->prompt_width = wl_prompt_visible_width(editor->prompt);
+    (void)snprintf(editor->right_prompt, sizeof editor->right_prompt, "%s",
+                   (right_prompt != NULL) ? right_prompt : "");
+    editor->right_width = wl_prompt_visible_width(editor->right_prompt);
     editor->length = 0;
     editor->cursor = 0;
     editor->buffer[0] = '\0';

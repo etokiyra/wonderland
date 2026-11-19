@@ -15,8 +15,9 @@ struct wl_history;
  * commands run with the canonical settings they expect.
  *
  * The editor writes its prompt and redraws to write_fd (normally stderr) and
- * reads keys from read_fd (normally stdin). Width calculations assume one
- * byte per column; UTF-8 cursor movement is not implemented yet.
+ * reads keys from read_fd (normally stdin). Prompt width skips ANSI escapes
+ * and counts UTF-8 code points; insertion and cursor movement are still
+ * byte-oriented, so UTF-8 editing remains limited.
  */
 
 struct wl_editor {
@@ -31,6 +32,9 @@ struct wl_editor {
 
     char prompt[512];
     size_t prompt_width; /* visible columns, not bytes (escapes/icons) */
+
+    char right_prompt[512];
+    size_t right_width;
 
     long history_position; /* -1 = editing the current line */
     char *saved_line;
@@ -52,7 +56,9 @@ void wl_editor_free(struct wl_editor *editor);
  * Reads one line (without the newline) into out. Returns WL_EDIT_EOF on Ctrl-D
  * at an empty line, WL_EDIT_INTERRUPTED on Ctrl-C.
  */
-enum wl_edit_status wl_editor_read(struct wl_editor *editor, const char *prompt,
-                                   char *out, size_t capacity, size_t *length);
+enum wl_edit_status wl_editor_read(struct wl_editor *editor,
+                                   const char *prompt,
+                                   const char *right_prompt, char *out,
+                                   size_t capacity, size_t *length);
 
 #endif /* WL_LINE_EDITOR_H */
