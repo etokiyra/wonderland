@@ -48,6 +48,12 @@ void wl_shell_init(struct wl_shell *sh, bool plain, bool interactive) {
     wl_vars_init(&sh->vars, environ);
     sh->jobs.head = NULL;
     sh->jobs.next_id = 1;
+    sh->jobs.started = 0;
+    sh->jobs.finished = 0;
+    sh->jobs.last_finished_command = NULL;
+    wl_state_init(&sh->library);
+    sh->library_path = NULL;
+    sh->library_enabled = false;
 
     sh->frame = calloc(1, sizeof *sh->frame);
     if (sh->frame != NULL) {
@@ -67,6 +73,9 @@ void wl_shell_destroy(struct wl_shell *sh) {
     free(sh->trap_exit);
     free(sh->trap_int);
     free(sh->trap_term);
+    wl_state_free(&sh->library);
+    free(sh->library_path);
+    sh->library_path = NULL;
     wl_vars_free(&sh->vars);
 }
 

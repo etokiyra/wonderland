@@ -122,6 +122,31 @@ expect "-c exit with a non-numeric argument explains itself" stderr_has "numeric
 run -c 'exit 1 2'
 expect "-c exit with too many arguments does not exit silently" status_is 1
 
+run -c 'go-to-alice 3'
+expect "go-to-alice shares exit in non-interactive mode" status_is 3
+
+run -c 'rest'
+expect "rest is unavailable in a plain session" status_is 1
+expect "rest explains that the library is unavailable" stderr_has "Alice's Library"
+
+run -c 'respawn'
+expect "respawn is unavailable in a plain session" status_is 1
+expect "respawn explains that the library is unavailable" stderr_has "Alice's Library"
+
+run -c 'possess'
+expect "possess reports that no personas are loaded" status_is 1
+expect "possess names the missing world" stderr_has "no personas"
+
+WONDERLAND_DEATH_SCREEN=1 "$BIN" -c 'false' >"$tmp/out" 2>"$tmp/err"
+status=$?
+expect "death screen never runs in a plain session" stderr_empty
+expect "death screen never changes the status" status_is 1
+
+WONDERLAND_MIRROR=1 "$BIN" -c 'echo mirrored' >"$tmp/out" 2>"$tmp/err"
+status=$?
+expect "mirror mode leaves command output alone" stdout_is_line mirrored
+expect "mirror mode writes nothing outside the prompt" stderr_empty
+
 two_lines='echo one
 echo two'
 run -c "$two_lines"

@@ -49,6 +49,16 @@ struct wl_job {
 struct wl_jobtab {
     struct wl_job *head;
     int next_id;
+
+    /*
+     * Monotonic counters for observational hooks (M7). They let the main loop
+     * notice job starts/finishes without the job module knowing about
+     * narrative output. `last_finished_command` is owned by the table and is
+     * the printable command of the most recently finished job.
+     */
+    unsigned long started;
+    unsigned long finished;
+    char *last_finished_command;
 };
 
 void wl_jobtab_init(struct wl_jobtab *table);

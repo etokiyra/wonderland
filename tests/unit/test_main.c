@@ -108,5 +108,6 @@ int main(void) {
     wl_suite_history();
     wl_suite_narrative();
     wl_suite_pack();
+    wl_suite_state();
     return wl_test_run() == 0 ? 0 : 1;
 }

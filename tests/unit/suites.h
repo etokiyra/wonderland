@@ -13,6 +13,7 @@ void wl_suite_var(void);
 void wl_suite_history(void);
 void wl_suite_narrative(void);
 void wl_suite_pack(void);
+void wl_suite_state(void);
 void wl_suite_arith(void);
 
 #endif /* WL_SUITES_H */

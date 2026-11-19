@@ -41,6 +41,10 @@ void wl_jobtab_free(struct wl_jobtab *table) {
         job = next;
     }
     table->head = NULL;
+    free(table->last_finished_command);
+    table->last_finished_command = NULL;
+    table->started = 0;
+    table->finished = 0;
 }
 
 struct wl_job *wl_job_create(struct wl_jobtab *table, pid_t pgid,
@@ -61,6 +65,7 @@ struct wl_job *wl_job_create(struct wl_jobtab *table, pid_t pgid,
     }
     job->next = table->head;
     table->head = job;
+    table->started++;
     return job;
 }
 
@@ -113,6 +118,15 @@ void wl_job_remove(struct wl_jobtab *table, struct wl_job *job) {
 
     while (*link != NULL) {
         if (*link == job) {
+            if (job->state == WL_JOB_DONE) {
+                char *copy = strdup(job->command);
+
+                if (copy != NULL) {
+                    free(table->last_finished_command);
+                    table->last_finished_command = copy;
+                }
+                table->finished++;
+            }
             *link = job->next;
             wl_job_free(job);
             return;

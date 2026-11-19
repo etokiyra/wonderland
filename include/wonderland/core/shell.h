@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include "core/state.h"
 #include "core/var.h"
 #include "jobs/job.h"
 #include "narrative/persona.h"
@@ -62,6 +63,16 @@ struct wl_shell {
      * libwl_narrative.a; the shell never inspects it.
      */
     struct wl_narrative_state narrative;
+
+    /*
+     * Alice's Library: the persisted cycle counter and the last `rest`
+     * checkpoint. Loaded and saved by main(); written by `rest`, `respawn`,
+     * `possess` and `exit`. Disabled (and never touched) in plain or
+     * non-interactive sessions, and when no state path could be resolved.
+     */
+    struct wl_state library;
+    char *library_path;
+    bool library_enabled;
 
     /* Positional parameters for the current function call or script. */
     struct wl_frame *frame;

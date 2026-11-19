@@ -14,6 +14,7 @@
 #include "core/limits.h"
 #include "core/opts.h"
 #include "core/shell.h"
+#include "core/state.h"
 #include "content/pack.h"
 #include "core/version.h"
 #include "exec/exec.h"
@@ -72,6 +73,7 @@ static void wl_emit_narrative(struct wl_shell *shell, enum wl_event_kind kind,
     event.kind = kind;
     event.status = status;
     event.now = time(NULL);
+    event.cycle = shell->library.cycle;
     event.cmdline = sanitized;
     event.argv0 = sanitized;
     event.cwd = cwd;
@@ -87,6 +89,124 @@ static void wl_emit_narrative(struct wl_shell *shell, enum wl_event_kind kind,
         fputc('\n', stderr);
         fflush(stderr);
     }
+}
+
+/*
+ * Observational job hooks (Black Rabbit). The job table only keeps counters
+ * and the last finished command; emitting stays here so jobs never depends on
+ * the narrative library.
+ */
+static void wl_emit_job_starts(struct wl_shell *shell, unsigned long *seen,
+                               const char *cwd) {
+    while (*seen < shell->jobs.started) {
+        struct wl_job *job = shell->jobs.head;
+
+        if (job != NULL && job->background) {
+            wl_emit_narrative(shell, WL_EV_JOB_START, 0, job->command, cwd);
+        }
+        (*seen)++;
+    }
+}
+
+static void wl_emit_job_finishes(struct wl_shell *shell, unsigned long *seen,
+                                 const char *cwd) {
+    while (*seen < shell->jobs.finished) {
+        wl_emit_narrative(shell, WL_EV_JOB_FINISH, 0,
+                          shell->jobs.last_finished_command, cwd);
+        (*seen)++;
+    }
+}
+
+static bool wl_env_flag(const char *name) {
+    const char *value = getenv(name);
+
+    return value != NULL && value[0] != '\0' && strcmp(value, "0") != 0;
+}
+
+/*
+ * Death screen: owned presentation on a non-zero status. Opt-in
+ * (WONDERLAND_DEATH_SCREEN=1), interactive non-plain only, and it never
+ * touches `last_status`.
+ */
+static void wl_emit_death_screen(const struct wl_shell *shell) {
+    if (!shell->interactive || shell->plain || !shell->running) {
+        return;
+    }
+    if (!wl_env_flag("WONDERLAND_DEATH_SCREEN")) {
+        return;
+    }
+    fputs("\n  [ the cycle continues without you ]\n", stderr);
+    fflush(stderr);
+}
+
+/*
+ * Mirror mode may alter only Wonderland-owned presentation. It currently
+ * adds a prompt fragment; it never touches command output, but the check is
+ * still kept here rather than in command execution.
+ */
+static void wl_apply_mirror(char *prompt, size_t capacity) {
+    size_t used;
+
+    if (!wl_env_flag("WONDERLAND_MIRROR")) {
+        return;
+    }
+    used = strlen(prompt);
+    if (used + strlen(" [mirror]") + 1 <= capacity) {
+        (void)snprintf(prompt + used, capacity - used, " [mirror]");
+    }
+}
+
+/*
+ * Alice's Library is opened only for interactive, non-plain sessions: plain
+ * mode must not read or write narrative state at all. A missing file is a
+ * fresh cycle; a corrupt file is a fresh cycle plus exactly one note.
+ */
+static void wl_library_open(struct wl_shell *shell) {
+    bool corrupt = false;
+    const struct wl_persona *persona;
+
+    if (!shell->interactive || shell->plain) {
+        return;
+    }
+    shell->library_path = wl_state_default_path();
+    if (shell->library_path == NULL) {
+        return;
+    }
+    shell->library_enabled = true;
+
+    if (wl_state_load(shell->library_path, &shell->library, &corrupt)) {
+        if (shell->library.persona != NULL) {
+            (void)wl_narrative_possess(&shell->narrative,
+                                       shell->library.persona);
+        }
+    } else if (corrupt) {
+        fprintf(stderr,
+                "wonderland: Alice's Library state was unreadable; starting "
+                "a new cycle\n");
+        wl_state_free(&shell->library);
+        wl_state_init(&shell->library);
+    }
+    shell->library.cycle++;
+    persona = wl_narrative_persona(&shell->narrative);
+    if (persona != NULL) {
+        (void)wl_state_set_persona(&shell->library, persona->id);
+    }
+    if (!wl_state_save(shell->library_path, &shell->library)) {
+        fprintf(stderr, "wonderland: could not write Alice's Library state\n");
+    }
+}
+
+static void wl_library_close(struct wl_shell *shell) {
+    const struct wl_persona *persona;
+
+    if (!shell->library_enabled || shell->library_path == NULL) {
+        return;
+    }
+    persona = wl_narrative_persona(&shell->narrative);
+    if (persona != NULL) {
+        (void)wl_state_set_persona(&shell->library, persona->id);
+    }
+    (void)wl_state_save(shell->library_path, &shell->library);
 }
 
 /*
@@ -217,6 +337,8 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
     bool have_previous_cwd = false;
     size_t used = 0;
     bool continuing = false;
+    unsigned long seen_started = shell->jobs.started;
+    unsigned long seen_finished = shell->jobs.finished;
 
     if (getcwd(previous_cwd, sizeof previous_cwd) != NULL) {
         have_previous_cwd = true;
@@ -237,6 +359,7 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
             const char *custom = getenv("WONDERLAND_PROMPT");
 
             wl_job_notify(shell);
+            wl_emit_job_finishes(shell, &seen_finished, cwd);
             if (custom != NULL && custom[0] != '\0') {
                 (void)snprintf(prompt, sizeof prompt, "%s", custom);
             } else {
@@ -244,6 +367,7 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
                                        shell->last_status, cwd,
                                        getenv("HOME"));
             }
+            wl_apply_mirror(prompt, sizeof prompt);
         }
 
         if (used >= sizeof line) {
@@ -335,8 +459,11 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
             (void)wl_exec_program(shell, program);
             shell->source = NULL;
             shell->source_length = 0;
+            wl_emit_job_starts(shell, &seen_started, cwd);
+            wl_emit_job_finishes(shell, &seen_finished, cwd);
             wl_emit_narrative(shell, WL_EV_POST_EXEC, shell->last_status, line,
                               cwd);
+            wl_emit_death_screen(shell);
             {
                 char after[WL_PATH_MAX];
 
@@ -502,6 +629,7 @@ int main(int argc, char **argv) {
 
             packs = wl_load_packs();
             wl_narrative_attach(&shell.narrative, packs);
+            wl_library_open(&shell);
             if (getcwd(cwd, sizeof cwd) != NULL) {
                 wl_emit_narrative(&shell, WL_EV_SESSION_START, 0, NULL, cwd);
             }
@@ -547,6 +675,7 @@ int main(int argc, char **argv) {
         if (getcwd(cwd, sizeof cwd) != NULL) {
             wl_emit_narrative(&shell, WL_EV_EXIT, shell.last_status, NULL, cwd);
         }
+        wl_library_close(&shell);
     }
     wl_arena_reset(&arena);
     if (have_editor) {

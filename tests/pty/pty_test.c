@@ -32,6 +32,8 @@ static int wl_master = -1;
 static char wl_output[WL_OUTPUT_CAP];
 static size_t wl_output_len;
 static int wl_failures;
+static char wl_state_home[256];
+static char wl_start_cwd[1024];
 
 static void wl_fail(const char *message) {
     fprintf(stderr, "pty: FAIL: %s\n", message);
@@ -187,6 +189,10 @@ static void wl_narrative_session(const char *binary) {
         return;
     }
     if (child == 0) {
+        (void)setenv("WONDERLAND_CONFIRM_EXIT", "0", 1);
+        (void)setenv("XDG_STATE_HOME", wl_state_home, 1);
+        (void)setenv("WONDERLAND_MIRROR", "1", 1);
+        (void)setenv("WONDERLAND_DEATH_SCREEN", "1", 1);
         execl(binary, binary, (char *)NULL);
         _exit(127);
     }
@@ -194,6 +200,9 @@ static void wl_narrative_session(const char *binary) {
     wl_disable_echo();
     if (!wl_wait_for("wonderland:", 5000)) {
         wl_fail("narrative: prompt did not appear");
+    }
+    if (strstr(wl_output, "[mirror]") == NULL) {
+        wl_fail("mirror mode did not mark the owned prompt");
     }
     prompts = wl_count_of("\r\n\rwonderland:");
 
@@ -205,6 +214,20 @@ static void wl_narrative_session(const char *binary) {
     }
     if (strstr(wl_output, "Something refused you") == NULL) {
         wl_fail("narrative: Alice did not speak on failure");
+    }
+    if (strstr(wl_output, "the cycle continues without you") == NULL) {
+        wl_fail("death screen did not appear on a failure");
+    }
+
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("echo status:$?\n")) {
+        wl_fail("narrative: could not write status check");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("narrative: no prompt after the status check");
+    }
+    if (strstr(wl_output, "status:1") == NULL) {
+        wl_fail("themed presentation changed the previous exit status");
     }
 
     prompts = wl_count_of("\r\n\rwonderland:");
@@ -229,6 +252,44 @@ static void wl_narrative_session(const char *binary) {
     }
     if (strstr(wl_output, "Grimm") == NULL) {
         wl_fail("narrative: possess did not switch to Grimm");
+    }
+
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("rest\n")) {
+        wl_fail("narrative: could not write rest");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("narrative: no prompt after rest");
+    }
+
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("cd /tmp\n")) {
+        wl_fail("narrative: could not write cd");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("narrative: no prompt after cd");
+    }
+
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("respawn\n")) {
+        wl_fail("narrative: could not write respawn");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("narrative: no prompt after respawn");
+    }
+    if (strstr(wl_output, "restored shell state only") == NULL) {
+        wl_fail("narrative: respawn did not report what it restored");
+    }
+
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("pwd\n")) {
+        wl_fail("narrative: could not write pwd");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("narrative: no prompt after pwd");
+    }
+    if (strstr(wl_output, wl_start_cwd) == NULL) {
+        wl_fail("narrative: respawn did not restore the working directory");
     }
 
     if (!wl_send("exit 0\n")) {
@@ -302,6 +363,290 @@ static void wl_plain_session(const char *binary) {
     }
 }
 
+/* Reads the persisted cycle; -1 when the file is missing or unparsable. */
+static int wl_read_cycle(void) {
+    char path[512];
+    char line[128];
+    int cycle = -1;
+    FILE *file;
+
+    (void)snprintf(path, sizeof path, "%s/wonderland/state", wl_state_home);
+    file = fopen(path, "r");
+    if (file == NULL) {
+        return -1;
+    }
+    while (fgets(line, sizeof line, file) != NULL) {
+        if (strncmp(line, "cycle ", 6) == 0) {
+            cycle = atoi(line + 6);
+            break;
+        }
+    }
+    (void)fclose(file);
+    return cycle;
+}
+
+static void wl_state_cleanup(void) {
+    char path[512];
+
+    (void)snprintf(path, sizeof path, "%s/wonderland/state", wl_state_home);
+    (void)unlink(path);
+    (void)snprintf(path, sizeof path, "%s/wonderland", wl_state_home);
+    (void)rmdir(path);
+    (void)rmdir(wl_state_home);
+}
+
+/*
+ * A second non-plain startup with the same state directory: proves the cycle
+ * advances across sessions and that `possess` persisted.
+ */
+static void wl_cycle_session(const char *binary, const char *persona) {
+    pid_t child;
+    int status = 0;
+    int reaped = 0;
+
+    wl_master = -1;
+    wl_output_len = 0;
+    wl_output[0] = '\0';
+
+    child = forkpty(&wl_master, NULL, NULL, NULL);
+    if (child < 0) {
+        wl_fail("cycle: forkpty failed");
+        return;
+    }
+    if (child == 0) {
+        (void)setenv("WONDERLAND_CONFIRM_EXIT", "0", 1);
+        (void)setenv("XDG_STATE_HOME", wl_state_home, 1);
+        execl(binary, binary, (char *)NULL);
+        _exit(127);
+    }
+    wl_disable_echo();
+    if (!wl_wait_for("wonderland:", 5000)) {
+        wl_fail("cycle: prompt did not appear");
+    }
+    if (persona != NULL) {
+        if (!wl_send("possess\n")) {
+            wl_fail("cycle: could not write possess");
+        }
+        if (!wl_wait_for(persona, 5000)) {
+            wl_fail("cycle: persona did not persist across sessions");
+        }
+    }
+    if (!wl_send("exit 0\n")) {
+        wl_fail("cycle: could not write exit");
+    }
+    for (int waited = 0; waited < 5000; waited += 50) {
+        pid_t result = waitpid(child, &status, WNOHANG);
+
+        if (result == child) {
+            reaped = 1;
+            break;
+        }
+        if (result < 0) {
+            break;
+        }
+        (void)wl_pump(50);
+    }
+    if (!reaped) {
+        (void)kill(child, SIGKILL);
+        (void)waitpid(child, &status, 0);
+        wl_fail("cycle: shell did not exit");
+    }
+}
+
+/*
+ * Default interactive confirmation: `go-to-alice` must be cancellable, and
+ * `exit` must still leave on `y`.
+ */
+static void wl_confirm_session(const char *binary) {
+    pid_t child;
+    int status = 0;
+    int reaped = 0;
+
+    wl_master = -1;
+    wl_output_len = 0;
+    wl_output[0] = '\0';
+
+    child = forkpty(&wl_master, NULL, NULL, NULL);
+    if (child < 0) {
+        wl_fail("confirm: forkpty failed");
+        return;
+    }
+    if (child == 0) {
+        (void)setenv("XDG_STATE_HOME", wl_state_home, 1);
+        (void)unsetenv("WONDERLAND_CONFIRM_EXIT");
+        execl(binary, binary, (char *)NULL);
+        _exit(127);
+    }
+    wl_disable_echo();
+    if (!wl_wait_for("wonderland:", 5000)) {
+        wl_fail("confirm: prompt did not appear");
+    }
+
+    if (!wl_send("go-to-alice\n")) {
+        wl_fail("confirm: could not write go-to-alice");
+    }
+    if (!wl_wait_for("leave the world?", 3000)) {
+        wl_fail("confirm: go-to-alice did not ask");
+    }
+    if (!wl_send("n\n")) {
+        wl_fail("confirm: could not decline");
+    }
+    if (!wl_wait_for("wonderland:", 3000)) {
+        wl_fail("confirm: declining did not return to the prompt");
+    }
+    if (strstr(wl_output, "the door remembers you") != NULL) {
+        wl_fail("confirm: declining still narrated an exit");
+    }
+
+    if (!wl_send("exit 0\n")) {
+        wl_fail("confirm: could not write exit");
+    }
+    if (!wl_wait_for("leave the world?", 3000)) {
+        wl_fail("confirm: exit did not ask");
+    }
+    if (!wl_send("y\n")) {
+        wl_fail("confirm: could not accept");
+    }
+    for (int waited = 0; waited < 5000; waited += 50) {
+        pid_t result = waitpid(child, &status, WNOHANG);
+
+        if (result == child) {
+            reaped = 1;
+            break;
+        }
+        if (result < 0) {
+            break;
+        }
+        (void)wl_pump(50);
+    }
+    if (!reaped) {
+        (void)kill(child, SIGKILL);
+        (void)waitpid(child, &status, 0);
+        wl_fail("confirm: confirming exit did not stop the shell");
+    } else if (!WIFEXITED(status)) {
+        wl_fail("confirm: shell did not exit cleanly");
+    }
+}
+
+static int wl_write_job_pack(const char *event, const char *text, char *path,
+                             size_t capacity) {
+    FILE *file;
+
+    (void)snprintf(path, capacity, "/tmp/wl-pty-job-%ld-%s.pack",
+                   (long)getpid(), event);
+    file = fopen(path, "w");
+    if (file == NULL) {
+        return 0;
+    }
+    (void)fprintf(file,
+                  "[pack]\n"
+                  "id = test.jobs.%s\n"
+                  "format = 1\n"
+                  "name = Jobs\n"
+                  "content_license = unspecified\n"
+                  "\n"
+                  "[persona rabbit]\n"
+                  "display_name = Rabbit\n"
+                  "class = secondary\n"
+                  "frequency = 1.0\n"
+                  "silence_bias = 0\n"
+                  "speaks_on = %s\n"
+                  "\n"
+                  "[line rabbit.%s]\n"
+                  "event = %s\n"
+                  "status = original\n"
+                  "category = original\n"
+                  "author = Test\n"
+                  "text = %s\n",
+                  event, event, event, event, text);
+    (void)fclose(file);
+    return 1;
+}
+
+/*
+ * Black Rabbit: the job table counters must reach the narrative layer. The
+ * custom pack speaks at 100% on exactly one job event, so the assertion is
+ * deterministic rather than a frequency roll.
+ */
+static void wl_job_session(const char *binary, const char *pack_path,
+                           const char *expected, int expect_start) {
+    pid_t child;
+    int status = 0;
+    int reaped = 0;
+    int prompts;
+
+    wl_master = -1;
+    wl_output_len = 0;
+    wl_output[0] = '\0';
+
+    child = forkpty(&wl_master, NULL, NULL, NULL);
+    if (child < 0) {
+        wl_fail("jobs: forkpty failed");
+        return;
+    }
+    if (child == 0) {
+        (void)setenv("WONDERLAND_CONFIRM_EXIT", "0", 1);
+        (void)setenv("XDG_STATE_HOME", wl_state_home, 1);
+        (void)setenv("WONDERLAND_PACKS", pack_path, 1);
+        execl(binary, binary, (char *)NULL);
+        _exit(127);
+    }
+    wl_disable_echo();
+    if (!wl_wait_for("wonderland:", 5000)) {
+        wl_fail("jobs: prompt did not appear");
+    }
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("possess rabbit\n")) {
+        wl_fail("jobs: could not select the test persona");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("jobs: no prompt after possess");
+    }
+    prompts = wl_count_of("\r\n\rwonderland:");
+
+    if (!wl_send("sleep 0.2 &\n")) {
+        wl_fail("jobs: could not write the background command");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("jobs: no prompt after the background command");
+    }
+    if (expect_start && strstr(wl_output, expected) == NULL) {
+        wl_fail("jobs: no narrative on job_start");
+    }
+
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("wait\n")) {
+        wl_fail("jobs: could not write wait");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("jobs: no prompt after wait");
+    }
+    if (!expect_start && strstr(wl_output, expected) == NULL) {
+        wl_fail("jobs: no narrative on job_finish");
+    }
+
+    if (!wl_send("exit 0\n")) {
+        wl_fail("jobs: could not write exit");
+    }
+    for (int waited = 0; waited < 5000; waited += 50) {
+        pid_t result = waitpid(child, &status, WNOHANG);
+
+        if (result == child) {
+            reaped = 1;
+            break;
+        }
+        if (result < 0) {
+            break;
+        }
+        (void)wl_pump(50);
+    }
+    if (!reaped) {
+        (void)kill(child, SIGKILL);
+        (void)waitpid(child, &status, 0);
+        wl_fail("jobs: shell did not exit");
+    }
+}
+
 int main(int argc, char **argv) {
     const char *binary = (argc > 1) ? argv[1] : "build/wonderland";
     struct termios baseline;
@@ -310,6 +655,12 @@ int main(int argc, char **argv) {
     int status = 0;
     int reaped = 0;
     pid_t child;
+
+    (void)snprintf(wl_state_home, sizeof wl_state_home,
+                   "/tmp/wl-pty-state-%ld", (long)getpid());
+    if (getcwd(wl_start_cwd, sizeof wl_start_cwd) == NULL) {
+        (void)snprintf(wl_start_cwd, sizeof wl_start_cwd, "%s", "?");
+    }
 
     child = forkpty(&wl_master, NULL, NULL, NULL);
     if (child < 0) {
@@ -570,8 +921,83 @@ int main(int argc, char **argv) {
                 wl_failures, wl_output);
         return 1;
     }
+
+    if (wl_read_cycle() != 1) {
+        wl_fail("cycle: the first library session did not persist cycle 1");
+    }
+    wl_cycle_session(binary, "Grimm");
+    if (wl_read_cycle() != 2) {
+        wl_fail("cycle: the second session did not advance to cycle 2");
+    }
+
+    {
+        char path[512];
+        FILE *file;
+
+        (void)snprintf(path, sizeof path, "%s/wonderland/state",
+                       wl_state_home);
+        file = fopen(path, "w");
+        if (file != NULL) {
+            (void)fputs("not a wonderland state file\n", file);
+            (void)fclose(file);
+        }
+    }
+    wl_cycle_session(binary, NULL);
+    if (strstr(wl_output, "starting a new cycle") == NULL) {
+        wl_fail("cycle: corrupt state did not produce exactly one note");
+    }
+    if (wl_read_cycle() != 1) {
+        wl_fail("cycle: corrupt state did not restart at cycle 1");
+    }
+
+    {
+        char path[512];
+
+        /* Start the confirmation/job sessions clean: no startup note. */
+        (void)snprintf(path, sizeof path, "%s/wonderland/state",
+                       wl_state_home);
+        (void)unlink(path);
+    }
+
+    wl_confirm_session(binary);
+    if (wl_failures != 0) {
+        fprintf(stderr, "pty: FAIL (%d in the confirmation session)\n%s\n",
+                wl_failures, wl_output);
+        return 1;
+    }
+    {
+        char path[512];
+
+        (void)snprintf(path, sizeof path, "%s/wonderland/state",
+                       wl_state_home);
+        (void)unlink(path);
+    }
+
+    {
+        char start_pack[256];
+        char finish_pack[256];
+
+        if (!wl_write_job_pack("job_start", "down the hole", start_pack,
+                               sizeof start_pack) ||
+            !wl_write_job_pack("job_finish", "back up again", finish_pack,
+                               sizeof finish_pack)) {
+            wl_fail("jobs: could not write the test packs");
+        } else {
+            wl_job_session(binary, start_pack, "down the hole", 1);
+            wl_job_session(binary, finish_pack, "back up again", 0);
+        }
+        (void)unlink(start_pack);
+        (void)unlink(finish_pack);
+    }
+    wl_state_cleanup();
+
+    if (wl_failures != 0) {
+        fprintf(stderr, "pty: FAIL (%d in the cycle session)\n%s\n",
+                wl_failures, wl_output);
+        return 1;
+    }
     printf("pty: ok (prompt, command, cd, pipeline, here-document, jobs, "
-           "Ctrl-C, Ctrl-Z, bg, narrative, plain, exit 4, termios "
-           "unchanged)\n");
+           "Ctrl-C, Ctrl-Z, bg, narrative, rest/respawn, possession, plain, "
+           "cycle state, exit 4, termios unchanged)\n");
     return 0;
 }

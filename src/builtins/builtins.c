@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /*
@@ -120,23 +121,224 @@ static int wl_builtin_cd(struct wl_shell *sh, int argc, char **argv) {
     return 0;
 }
 
-static int wl_builtin_exit(struct wl_shell *sh, int argc, char **argv) {
+/*
+ * Alice's Library is narrative state, so it is unavailable outside an
+ * interactive, non-plain session. `rest` and `respawn` say so instead of
+ * quietly doing nothing.
+ */
+static bool wl_library_ready(struct wl_shell *sh, const char *name) {
+    if (!sh->interactive || sh->plain || !sh->library_enabled ||
+        sh->library_path == NULL) {
+        fprintf(stderr,
+                "wonderland: %s: Alice's Library is unavailable here\n", name);
+        return false;
+    }
+    return true;
+}
+
+static bool wl_library_save(struct wl_shell *sh) {
+    const struct wl_persona *persona;
+
+    if (!sh->library_enabled || sh->library_path == NULL) {
+        return true;
+    }
+    persona = wl_narrative_persona(&sh->narrative);
+    if (persona != NULL) {
+        (void)wl_state_set_persona(&sh->library, persona->id);
+    }
+    return wl_state_save(sh->library_path, &sh->library);
+}
+
+static const char *const wl_rest_names[] = {
+    "PATH", "HOME", "PWD", "OLDPWD", "SHELL",
+};
+
+static int wl_builtin_rest(struct wl_shell *sh, int argc, char **argv) {
+    char cwd[WL_PATH_MAX];
+
+    (void)argv;
+    if (argc != 1) {
+        fprintf(stderr, "wonderland: rest: takes no arguments\n");
+        return 1;
+    }
+    if (!wl_library_ready(sh, "rest")) {
+        return 1;
+    }
+    if (getcwd(cwd, sizeof cwd) == NULL) {
+        fprintf(stderr, "wonderland: rest: %s\n", strerror(errno));
+        return 1;
+    }
+
+    wl_state_clear_rest(&sh->library);
+    sh->library.has_rest = true;
+    sh->library.rest_cwd = strdup(cwd);
+    sh->library.rest_time = time(NULL);
+    if (sh->library.rest_cwd == NULL) {
+        sh->library.has_rest = false;
+        fprintf(stderr, "wonderland: rest: out of memory\n");
+        return 1;
+    }
+    for (size_t index = 0;
+         index < sizeof wl_rest_names / sizeof wl_rest_names[0]; index++) {
+        const char *name = wl_rest_names[index];
+        const char *value = wl_var_get(&sh->vars, name, strlen(name));
+
+        if (value != NULL && !wl_state_set_var(&sh->library, name, value)) {
+            fprintf(stderr, "wonderland: rest: out of memory\n");
+            return 1;
+        }
+    }
+    if (!wl_library_save(sh)) {
+        fprintf(stderr, "wonderland: rest: could not write the state file\n");
+        return 1;
+    }
+    return 0;
+}
+
+static int wl_builtin_respawn(struct wl_shell *sh, int argc, char **argv) {
+    struct wl_state loaded;
+    bool corrupt = false;
+    int failures = 0;
+    int restored = 0;
+
+    (void)argv;
+    if (argc != 1) {
+        fprintf(stderr, "wonderland: respawn: takes no arguments\n");
+        return 1;
+    }
+    if (!wl_library_ready(sh, "respawn")) {
+        return 1;
+    }
+
+    wl_state_init(&loaded);
+    if (!wl_state_load(sh->library_path, &loaded, &corrupt)) {
+        if (corrupt) {
+            fprintf(stderr, "wonderland: respawn: the state file is corrupt; "
+                            "no checkpoint to restore\n");
+        } else {
+            fprintf(stderr, "wonderland: respawn: no checkpoint (use `rest`)\n");
+        }
+        wl_state_free(&loaded);
+        return 1;
+    }
+    if (!loaded.has_rest) {
+        fprintf(stderr, "wonderland: respawn: no checkpoint (use `rest`)\n");
+        wl_state_free(&loaded);
+        return 1;
+    }
+
+    if (loaded.rest_cwd != NULL) {
+        if (chdir(loaded.rest_cwd) != 0) {
+            fprintf(stderr, "wonderland: respawn: cd %s: %s\n",
+                    loaded.rest_cwd, strerror(errno));
+            failures++;
+        }
+    }
+    for (size_t index = 0; index < loaded.var_count; index++) {
+        const char *name = loaded.vars[index].name;
+
+        if (!wl_var_set(&sh->vars, name, strlen(name),
+                        loaded.vars[index].value,
+                        strlen(loaded.vars[index].value), true)) {
+            fprintf(stderr, "wonderland: respawn: %s: out of memory\n", name);
+            failures++;
+        } else {
+            restored++;
+        }
+    }
+    if (loaded.persona != NULL &&
+        !wl_narrative_possess(&sh->narrative, loaded.persona)) {
+        fprintf(stderr, "wonderland: respawn: no such persona: %s\n",
+                loaded.persona);
+        failures++;
+    }
+
+    /* Keep the in-memory checkpoint in step with what was restored. */
+    wl_state_clear_rest(&sh->library);
+    sh->library.has_rest = true;
+    sh->library.rest_cwd = loaded.rest_cwd;
+    sh->library.rest_time = loaded.rest_time;
+    loaded.rest_cwd = NULL;
+    for (size_t index = 0; index < loaded.var_count; index++) {
+        if (!wl_state_set_var(&sh->library, loaded.vars[index].name,
+                              loaded.vars[index].value)) {
+            failures++;
+        }
+    }
+    if (loaded.persona != NULL) {
+        (void)wl_state_set_persona(&sh->library, loaded.persona);
+    }
+    (void)wl_library_save(sh);
+
+    fprintf(stderr,
+            "wonderland: respawn: restored shell state only (%d variables, "
+            "cwd); processes were not resurrected\n",
+            restored);
+    wl_state_free(&loaded);
+    return (failures == 0) ? 0 : 1;
+}
+
+/*
+ * Both `exit` and `go-to-alice` go through this path (D-0039). Interactive
+ * non-plain sessions confirm unless WONDERLAND_CONFIRM_EXIT=0; scripts,
+ * `-c`, stdin and plain sessions never ask.
+ */
+static bool wl_confirm_leave(struct wl_shell *sh, const char *name) {
+    const char *setting;
+    FILE *tty;
+    char answer[32];
+
+    if (!sh->interactive || sh->plain) {
+        return true;
+    }
+    setting = getenv("WONDERLAND_CONFIRM_EXIT");
+    if (setting != NULL && strcmp(setting, "0") == 0) {
+        return true;
+    }
+    tty = fopen("/dev/tty", "r+");
+    if (tty == NULL) {
+        return true;
+    }
+    fprintf(tty, "wonderland: %s: leave the world? [y/N] ", name);
+    fflush(tty);
+    if (fgets(answer, sizeof answer, tty) == NULL) {
+        (void)fclose(tty);
+        return true;
+    }
+    (void)fclose(tty);
+    return answer[0] == 'y' || answer[0] == 'Y';
+}
+
+static int wl_exit_command(struct wl_shell *sh, int argc, char **argv,
+                           const char *name) {
     int status = sh->last_status;
 
     if (argc > 2) {
-        fprintf(stderr, "wonderland: exit: too many arguments\n");
+        fprintf(stderr, "wonderland: %s: too many arguments\n", name);
         return 1; /* do not exit: the argument list is ambiguous */
     }
 
     if (argc == 2 && !wl_parse_small_number(argv[1], 0, 255, &status)) {
-        fprintf(stderr, "wonderland: exit: %s: numeric argument required\n",
-                argv[1]);
+        fprintf(stderr, "wonderland: %s: %s: numeric argument required\n",
+                name, argv[1]);
         wl_shell_stop(sh, 2);
         return 2;
     }
 
+    if (!wl_confirm_leave(sh, name)) {
+        return 1;
+    }
+    (void)wl_library_save(sh);
     wl_shell_stop(sh, status);
     return status;
+}
+
+static int wl_builtin_exit(struct wl_shell *sh, int argc, char **argv) {
+    return wl_exit_command(sh, argc, argv, "exit");
+}
+
+static int wl_builtin_go_to_alice(struct wl_shell *sh, int argc, char **argv) {
+    return wl_exit_command(sh, argc, argv, "go-to-alice");
 }
 
 static int wl_builtin_export(struct wl_shell *sh, int argc, char **argv) {
@@ -668,6 +870,7 @@ static int wl_builtin_possess(struct wl_shell *sh, int argc, char **argv) {
                 argv[1]);
         return 1;
     }
+    (void)wl_library_save(sh);
     {
         const struct wl_persona *persona =
             wl_narrative_persona(&sh->narrative);
@@ -698,9 +901,12 @@ static const struct wl_builtin wl_builtins[] = {
     {"exit", wl_builtin_exit},
     {"export", wl_builtin_export},
     {"fg", wl_builtin_fg},
+    {"go-to-alice", wl_builtin_go_to_alice},
     {"jobs", wl_builtin_jobs},
     {"possess", wl_builtin_possess},
     {"read", wl_builtin_read},
+    {"respawn", wl_builtin_respawn},
+    {"rest", wl_builtin_rest},
     {"return", wl_builtin_return},
     {"set", wl_builtin_set},
     {"shift", wl_builtin_shift},
