@@ -18,6 +18,7 @@
 
 static volatile sig_atomic_t wl_interrupted;
 static volatile sig_atomic_t wl_terminated;
+static volatile sig_atomic_t wl_resized;
 
 static void wl_on_sigint(int signo) {
     (void)signo;
@@ -27,6 +28,11 @@ static void wl_on_sigint(int signo) {
 static void wl_on_sigterm(int signo) {
     (void)signo;
     wl_terminated = 1;
+}
+
+static void wl_on_sigwinch(int signo) {
+    (void)signo;
+    wl_resized = 1;
 }
 
 static void wl_install_handler(int signo, void (*handler)(int)) {
@@ -41,6 +47,7 @@ static void wl_install_handler(int signo, void (*handler)(int)) {
 
 void wl_signal_init_interactive(void) {
     wl_install_handler(SIGINT, wl_on_sigint);
+    wl_install_handler(SIGWINCH, wl_on_sigwinch);
 
     /*
      * An interactive shell must not die from these, and must not be stopped by
@@ -100,6 +107,14 @@ bool wl_signal_interrupt_pending(void) {
 
 bool wl_signal_term_pending(void) {
     return wl_terminated != 0;
+}
+
+bool wl_signal_take_resize(void) {
+    if (wl_resized != 0) {
+        wl_resized = 0;
+        return true;
+    }
+    return false;
 }
 
 bool wl_signal_take_term(void) {

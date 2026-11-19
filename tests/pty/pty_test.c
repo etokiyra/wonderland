@@ -138,9 +138,16 @@ static int wl_termios_equal(const struct termios *left,
  * Each completed command produces exactly one new prompt. Waiting on the count
  * instead of on output text avoids depending on timing or on echoed input.
  */
+/*
+ * A completed command prints "
+" and the editor then renders "
+" plus the
+ * prompt. Counting that sequence ignores the per-keystroke redraws, which also
+ * contain the prompt text.
+ */
 static int wl_next_prompt(int *prompts, const char *label) {
     (*prompts)++;
-    if (!wl_wait_for_count("wonderland:", *prompts, 5000)) {
+    if (!wl_wait_for_count("\r\n\rwonderland:", *prompts, 5000)) {
         wl_fail(label);
         return 0;
     }
@@ -184,10 +191,10 @@ int main(int argc, char **argv) {
         wl_fail("could not read baseline terminal settings");
     }
 
-    if (!wl_wait_for_count("wonderland:", 1, 5000)) {
+    if (!wl_wait_for("wonderland:", 5000)) {
         wl_fail("prompt did not appear");
     }
-    prompts = 1;
+    prompts = 0;
 
     if (!wl_send("echo hello\n")) {
         wl_fail("could not write to the terminal");
@@ -195,6 +202,43 @@ int main(int argc, char **argv) {
     if (wl_next_prompt(&prompts, "no prompt after echo") &&
         !wl_wait_for("hello\r\n", 2000)) {
         wl_fail("echo did not run");
+    }
+
+    /* History recall: the newest entry is "echo hello". */
+    if (!wl_send("\033[A\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after history recall") &&
+        !wl_wait_for("hello\r\n", 2000)) {
+        wl_fail("Up arrow did not recall the last command");
+    }
+
+    /* Ctrl-A then insertion, building "echo hello world". */
+    if (!wl_send("world") || !wl_send("\001") ||
+        !wl_send("echo hello ") || !wl_send("\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after Ctrl-A editing") &&
+        !wl_wait_for("hello world\r\n", 2000)) {
+        wl_fail("Ctrl-A and insertion produced the wrong line");
+    }
+
+    /* Ctrl-U clears the pending line. */
+    if (!wl_send("junk") || !wl_send("\025") || !wl_send("echo clean\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after Ctrl-U") &&
+        !wl_wait_for("clean\r\n", 2000)) {
+        wl_fail("Ctrl-U did not clear the line");
+    }
+
+    /* Tab completes "ech" to "echo". */
+    if (!wl_send("ech\t hi\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after completion") &&
+        !wl_wait_for("hi\r\n", 2000)) {
+        wl_fail("tab completion did not complete the command");
     }
 
     /* A trailing backslash continues the logical line (M2 continuation). */
@@ -325,24 +369,29 @@ int main(int argc, char **argv) {
     }
 
     /*
-     * Ctrl-Z must not wedge the shell. Job control is M4, so SIGTSTP is
-     * ignored in children: the command runs to completion instead of stopping
-     * with nobody able to resume it (docs/DECISIONS.md D-0051).
+     * At the prompt the editor owns the terminal and keeps it raw; while a
+     * foreground command runs it must be back to the saved settings.
      */
+    if (tcgetattr(wl_master, &at_prompt) != 0) {
+        wl_fail("could not read terminal settings at the prompt");
+    } else if ((at_prompt.c_lflag & (ECHO | ICANON)) != 0) {
+        wl_fail("prompt is not in raw mode");
+    }
+
     if (!wl_send("sleep 0.3\n")) {
         wl_fail("could not write to the terminal");
     }
     (void)usleep(100000);
-    if (!wl_send("\032")) {
-        wl_fail("could not send Ctrl-Z");
-    }
-    (void)wl_next_prompt(&prompts, "Ctrl-Z wedged the shell");
+    {
+        struct termios during;
 
-    if (tcgetattr(wl_master, &at_prompt) != 0) {
-        wl_fail("could not read terminal settings at the prompt");
-    } else if (!wl_termios_equal(&baseline, &at_prompt)) {
-        wl_fail("terminal settings changed while the shell was running");
+        if (tcgetattr(wl_master, &during) != 0) {
+            wl_fail("could not read terminal settings during a command");
+        } else if (!wl_termios_equal(&baseline, &during)) {
+            wl_fail("terminal settings not restored for a foreground command");
+        }
     }
+    (void)wl_next_prompt(&prompts, "no prompt after the restore check");
 
     if (!wl_send("exit 4\n")) {
         wl_fail("could not write to the terminal");

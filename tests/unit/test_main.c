@@ -105,5 +105,6 @@ int main(void) {
     wl_suite_fuzz();
     wl_suite_var();
     wl_suite_arith();
+    wl_suite_history();
     return wl_test_run() == 0 ? 0 : 1;
 }

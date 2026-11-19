@@ -386,6 +386,21 @@ expect "shift removes positional parameters" stdout_is_line '2 b'
 run -c 'set -- one "two three"; printf "[%s]\n" "$@"'
 expect "quoted $@ expands to separate fields" stdout_is_text '[one]\n[two three]\n'
 
+run_stdin 'a b c\n' -c 'read x y; echo "$x|$y"'
+expect "read splits input into variables" stdout_is_line 'a|b c'
+
+run_stdin 'hello world\n' -c 'read; echo "[$REPLY]"'
+expect "read without names sets REPLY" stdout_is_line '[hello world]'
+
+run_stdin '' -c 'read x; echo "status=$?"'
+expect "read returns 1 at end of file" stdout_is_line 'status=1'
+
+cat >"$tmp/ansi.sh" <<'CASE'
+printf '%s\n' $'a\tb' $'\x41'
+CASE
+run "$tmp/ansi.sh"
+expect "ANSI-C quoting decodes escapes" stdout_is_text 'a\tb\nA\n'
+
 run -c 'sleep 0.1 & pid=$!; test "$pid" -gt 0 && echo pid-ok; wait'
 expect "the recent background pid is available" stdout_is_line pid-ok
 

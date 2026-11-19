@@ -17,6 +17,8 @@
 #include "exec/exec.h"
 #include "jobs/job.h"
 #include "jobs/signal.h"
+#include "line/editor.h"
+#include "line/history.h"
 #include "line/read.h"
 #include "parse/parse.h"
 #include "term/prompt.h"
@@ -81,7 +83,8 @@ static bool wl_line_continues(const char *text, size_t length) {
     return (backslashes % 2) == 1;
 }
 
-static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena) {
+static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
+                               struct wl_editor *editor) {
     char line[WL_LINE_MAX];
     size_t used = 0;
     bool continuing = false;
@@ -89,21 +92,26 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena) {
     for (;;) {
         char prompt[256];
         char cwd[WL_PATH_MAX];
-        enum wl_line_status read_status;
+        enum wl_edit_status read_status;
         size_t length = 0;
 
         if (getcwd(cwd, sizeof cwd) == NULL) {
             (void)snprintf(cwd, sizeof cwd, "?");
         }
         if (continuing) {
-            fputs("> ", stderr);
+            (void)snprintf(prompt, sizeof prompt, "%s", "> ");
         } else {
+            const char *custom = getenv("WONDERLAND_PROMPT");
+
             wl_job_notify(shell);
-            (void)wl_prompt_format(prompt, sizeof prompt, shell->last_status,
-                                   cwd, getenv("HOME"));
-            fputs(prompt, stderr);
+            if (custom != NULL && custom[0] != '\0') {
+                (void)snprintf(prompt, sizeof prompt, "%s", custom);
+            } else {
+                (void)wl_prompt_format(prompt, sizeof prompt,
+                                       shell->last_status, cwd,
+                                       getenv("HOME"));
+            }
         }
-        fflush(stderr);
 
         if (used >= sizeof line) {
             fprintf(stderr, "wonderland: line too long (max %d bytes)\n",
@@ -115,18 +123,16 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena) {
             continue;
         }
 
-        read_status = wl_line_read(shell->tty_fd, line + used,
-                                   sizeof line - used, &length);
-        if (read_status == WL_LINE_INTERRUPTED) {
+        read_status = wl_editor_read(editor, prompt, line + used,
+                                     sizeof line - used, &length);
+        if (read_status == WL_EDIT_INTERRUPTED) {
             wl_exec_trap_dispatch(shell);
-            fputc('\n', stderr);
-            fflush(stderr);
             used = 0;
             continuing = false;
             wl_arena_reset(arena);
             continue;
         }
-        if (read_status == WL_LINE_EOF) {
+        if (read_status == WL_EDIT_EOF) {
             fputc('\n', stderr);
             fflush(stderr);
             if (used > 0) {
@@ -137,7 +143,7 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena) {
             }
             break;
         }
-        if (read_status == WL_LINE_TOO_LONG) {
+        if (read_status == WL_EDIT_TOO_LONG) {
             fprintf(stderr, "wonderland: line too long (max %d bytes)\n",
                     WL_LINE_MAX - 1);
             wl_shell_set_status(shell, 2);
@@ -146,7 +152,7 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena) {
             wl_arena_reset(arena);
             continue;
         }
-        if (read_status == WL_LINE_ERROR) {
+        if (read_status == WL_EDIT_ERROR) {
             fprintf(stderr, "wonderland: read: %s\n", strerror(errno));
             wl_shell_set_status(shell, 1);
             break;
@@ -291,6 +297,10 @@ int main(int argc, char **argv) {
     struct wl_shell shell;
     struct wl_term term;
     struct wl_arena arena;
+    struct wl_editor editor;
+    struct wl_history *history = NULL;
+    char *history_path = NULL;
+    bool have_editor = false;
     bool interactive;
 
     if (action == WL_OPT_USAGE_ERROR) {
@@ -321,6 +331,20 @@ int main(int argc, char **argv) {
         (void)wl_term_save(&term, STDIN_FILENO);
         wl_signal_init_interactive();
         wl_job_init(&shell);
+
+        history = wl_history_new();
+        history_path = wl_history_default_path();
+        if (history != NULL && history_path != NULL) {
+            (void)wl_history_load(history, history_path);
+        }
+        if (!wl_editor_init(&editor, STDIN_FILENO, STDERR_FILENO, history)) {
+            fprintf(stderr, "wonderland: out of memory\n");
+            wl_term_restore(&term);
+            wl_exec_shutdown(&shell);
+            wl_shell_destroy(&shell);
+            return 1;
+        }
+        have_editor = true;
     }
 
     if (action == WL_OPT_COMMAND) {
@@ -348,13 +372,23 @@ int main(int argc, char **argv) {
         wl_buf_free(&source);
         wl_arena_reset(&arena);
     } else if (interactive) {
-        wl_run_interactive(&shell, &arena);
+        wl_run_interactive(&shell, &arena, &editor);
     } else {
         wl_run_stream(&shell, &arena, stdin, "<stdin>");
     }
 
     wl_exec_run_exit_trap(&shell);
     wl_arena_reset(&arena);
+    if (have_editor) {
+        wl_editor_free(&editor);
+    }
+    if (history != NULL) {
+        if (history_path != NULL) {
+            (void)wl_history_save(history, history_path);
+        }
+        wl_history_free(history);
+    }
+    free(history_path);
     if (interactive) {
         wl_term_restore(&term);
     }

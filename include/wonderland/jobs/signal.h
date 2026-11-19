@@ -42,4 +42,7 @@ bool wl_signal_take_term(void);
 /* True while a SIGTERM is pending, without clearing it. */
 bool wl_signal_term_pending(void);
 
+/* Returns true once if SIGWINCH arrived since the last call; clears it. */
+bool wl_signal_take_resize(void);
+
 #endif /* WL_JOBS_SIGNAL_H */

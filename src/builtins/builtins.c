@@ -6,6 +6,7 @@
 #include "exec/exec.h"
 #include "jobs/job.h"
 #include "jobs/signal.h"
+#include "line/read.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -534,6 +535,98 @@ static int wl_builtin_wait(struct wl_shell *sh, int argc, char **argv) {
     return status;
 }
 
+static int wl_builtin_read(struct wl_shell *sh, int argc, char **argv) {
+    bool raw = false;
+    int index = 1;
+    char line[WL_LINE_MAX];
+    size_t length = 0;
+    enum wl_line_status read_status;
+
+    while (index < argc && argv[index][0] == '-' && argv[index][1] != '\0') {
+        if (strcmp(argv[index], "-r") == 0) {
+            raw = true;
+            index++;
+            continue;
+        }
+        fprintf(stderr, "wonderland: read: unknown option '%s'\n",
+                argv[index]);
+        return 2;
+    }
+
+    read_status = wl_line_read(STDIN_FILENO, line, sizeof line, &length);
+    if (read_status != WL_LINE_OK) {
+        return 1;
+    }
+
+    if (!raw) {
+        size_t out = 0;
+
+        for (size_t at = 0; at < length; at++) {
+            if (line[at] == '\\' && at + 1 < length) {
+                at++;
+                line[out++] = line[at];
+            } else {
+                line[out++] = line[at];
+            }
+        }
+        length = out;
+        line[length] = '\0';
+    }
+
+    {
+        int names = argc - index;
+
+        if (names <= 0) {
+            if (!wl_var_set(&sh->vars, "REPLY", 5, line, length, false)) {
+                fprintf(stderr, "wonderland: read: out of memory\n");
+                return 1;
+            }
+            return 0;
+        }
+
+        {
+            const char *ifs = wl_var_get(&sh->vars, "IFS", 3);
+            size_t position = 0;
+
+            if (ifs == NULL) {
+                ifs = " \t\n";
+            }
+
+            for (int field = 0; field < names; field++) {
+                size_t start;
+                size_t end;
+
+                while (position < length &&
+                       strchr(ifs, line[position]) != NULL) {
+                    position++;
+                }
+                start = position;
+                if (field == names - 1) {
+                    position = length;
+                } else {
+                    while (position < length &&
+                           strchr(ifs, line[position]) == NULL) {
+                        position++;
+                    }
+                }
+                end = position;
+                if (field == names - 1) {
+                    while (end > start && strchr(ifs, line[end - 1]) != NULL) {
+                        end--;
+                    }
+                }
+                if (!wl_var_set(&sh->vars, argv[index + field],
+                                strlen(argv[index + field]), line + start,
+                                end - start, false)) {
+                    fprintf(stderr, "wonderland: read: out of memory\n");
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 static int wl_builtin_colon(struct wl_shell *sh, int argc, char **argv) {
     (void)sh;
     (void)argc;
@@ -556,6 +649,7 @@ static const struct wl_builtin wl_builtins[] = {
     {"export", wl_builtin_export},
     {"fg", wl_builtin_fg},
     {"jobs", wl_builtin_jobs},
+    {"read", wl_builtin_read},
     {"return", wl_builtin_return},
     {"set", wl_builtin_set},
     {"shift", wl_builtin_shift},

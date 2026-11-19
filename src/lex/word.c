@@ -1,5 +1,6 @@
 #include "lex/lex.h"
 
+#include <ctype.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -712,6 +713,156 @@ static bool wl_scan_braced(struct wl_scanner *scan, bool quoted) {
     return wl_scan_push(scan, &part);
 }
 
+/*
+ * ANSI-C quoting: $'...'. Escapes are decoded here; the result is a quoted
+ * literal part, so globbing and field splitting treat it like '...'.
+ */
+static bool wl_scan_ansi_quote(struct wl_scanner *scan) {
+    struct wl_lexer *lexer = scan->lexer;
+    size_t mark_parts = scan->parts.count;
+    size_t mark_length = scan->literal.len;
+    int mark_state = scan->literal_state;
+
+    wl_lex_skip(lexer, 1); /* opening quote */
+
+    while (!wl_lex_done(lexer)) {
+        char c = wl_lex_peek_at(lexer, 0);
+
+        if (c == '\'') {
+            wl_lex_skip(lexer, 1);
+            if (scan->parts.count == mark_parts &&
+                scan->literal.len == mark_length &&
+                scan->literal_state == mark_state) {
+                scan->literal_state = 'q';
+                return wl_scan_flush(scan, true);
+            }
+            return true;
+        }
+
+        if (c != '\\') {
+            if (!wl_scan_append_byte(scan, c, 'q')) {
+                return false;
+            }
+            wl_lex_skip(lexer, 1);
+            continue;
+        }
+
+        wl_lex_skip(lexer, 1); /* backslash */
+        if (wl_lex_done(lexer)) {
+            return wl_scan_fail(scan, true, "unterminated $'...'");
+        }
+
+        {
+            char escaped = wl_lex_peek_at(lexer, 0);
+            char decoded = 0;
+
+            switch (escaped) {
+            case 'a':
+                decoded = '\a';
+                break;
+            case 'b':
+                decoded = '\b';
+                break;
+            case 'e':
+                decoded = 27;
+                break;
+            case 'f':
+                decoded = '\f';
+                break;
+            case 'n':
+                decoded = '\n';
+                break;
+            case 'r':
+                decoded = '\r';
+                break;
+            case 't':
+                decoded = '\t';
+                break;
+            case 'v':
+                decoded = '\v';
+                break;
+            case '\\':
+                decoded = '\\';
+                break;
+            case '\'':
+                decoded = '\'';
+                break;
+            case '"':
+                decoded = '"';
+                break;
+            case '?':
+                decoded = '?';
+                break;
+            case 'x': {
+                int value = 0;
+                int digits = 0;
+
+                wl_lex_skip(lexer, 1);
+                while (digits < 2 && !wl_lex_done(lexer) &&
+                       isxdigit((unsigned char)wl_lex_peek_at(lexer, 0))) {
+                    char hex = wl_lex_peek_at(lexer, 0);
+                    int digit = (hex >= '0' && hex <= '9')
+                                    ? hex - '0'
+                                    : (hex | 32) - 'a' + 10;
+
+                    value = value * 16 + digit;
+                    digits++;
+                    wl_lex_skip(lexer, 1);
+                }
+                if (digits == 0) {
+                    return wl_scan_fail(scan, false,
+                                        "bad \\x escape in $'...'");
+                }
+                decoded = (char)value;
+                break;
+            }
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7': {
+                int value = 0;
+                int digits = 0;
+
+                while (digits < 3 && !wl_lex_done(lexer) &&
+                       wl_lex_peek_at(lexer, 0) >= '0' &&
+                       wl_lex_peek_at(lexer, 0) <= '7') {
+                    value = value * 8 + (wl_lex_peek_at(lexer, 0) - '0');
+                    digits++;
+                    wl_lex_skip(lexer, 1);
+                }
+                decoded = (char)value;
+                break;
+            }
+            default:
+                /* Unknown escape keeps the backslash and the character. */
+                if (!wl_scan_append_byte(scan, '\\', 'q') ||
+                    !wl_scan_append_byte(scan, escaped, 'q')) {
+                    return false;
+                }
+                wl_lex_skip(lexer, 1);
+                continue;
+            }
+
+            if (decoded == '\0') {
+                return wl_scan_fail(scan, false,
+                                    "NUL bytes are not supported in $'...'");
+            }
+            if (!wl_scan_append_byte(scan, decoded, 'q')) {
+                return false;
+            }
+            if (escaped != 'x' && !(escaped >= '0' && escaped <= '7')) {
+                wl_lex_skip(lexer, 1);
+            }
+        }
+    }
+
+    return wl_scan_fail(scan, true, "unterminated $'...'");
+}
+
 static bool wl_scan_dollar(struct wl_scanner *scan, bool quoted) {
     struct wl_lexer *lexer = scan->lexer;
     struct wl_word_part part;
@@ -726,6 +877,9 @@ static bool wl_scan_dollar(struct wl_scanner *scan, bool quoted) {
     }
 
     c = wl_lex_peek_at(lexer, 0);
+    if (c == '\'') {
+        return wl_scan_ansi_quote(scan);
+    }
     if (c == '{') {
         return wl_scan_braced(scan, quoted);
     }
