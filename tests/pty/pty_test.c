@@ -196,7 +196,7 @@ static void wl_narrative_session(const char *binary) {
     if (!wl_wait_for(WL_PROMPT_MARK, 5000)) {
         wl_fail("narrative: prompt did not appear");
     }
-    if (strstr(wl_output, "[mirror]") == NULL) {
+    if (!wl_wait_for("[mirror]", 5000)) {
         wl_fail("mirror mode did not mark the owned prompt");
     }
     prompts = wl_count_of(WL_PROMPT_MARK);
