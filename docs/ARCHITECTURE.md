@@ -219,6 +219,22 @@ Function bodies are the one AST that must outlive a parse unit; they are
 re-parsed into their own arenas rather than keeping the per-line arena alive
 (D-0070).
 
+### 4.5 Implemented at M4
+
+| Step | File |
+|------|------|
+| job table, waiting, terminal handoff, notifications | `src/jobs/job.c` |
+| interactive job initialisation (`setpgid` + tty) | `src/jobs/job.c` |
+| `jobs`, `fg`, `bg`, `wait` | `src/builtins/builtins.c` |
+| background `&`, stopped-foreground job creation | `src/exec/exec.c` |
+| `$!` | `src/core/shell.h`, `src/expand/expand.c` |
+| prompt-time notification | `src/main.c` |
+
+A background statement is one wrapper process in its own process group; a
+foreground pipeline contributes several processes to one job. The shell does
+not use SIGCHLD for bookkeeping: it waits synchronously for foreground jobs
+and reaps with `WNOHANG` between commands (D-0080).
+
 ## 5. Core data model
 
 ```c

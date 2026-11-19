@@ -26,12 +26,12 @@ Repository docs are normative:
 | `docs/ROADMAP.md` | milestone order and exit criteria |
 | `docs/RISKS.md` | known failure modes and tripwires |
 
-Current status: Milestone 3b (2026-11-19). Variables, expansion, redirections,
-pipelines, control flow, functions, positional parameters, traps, `set`, and
-script files work; 14 differential cases agree with dash and bash. Job control
-(`&`, `jobs`, `fg`, `bg`), history and the line editor do not, and neither do
-`local`, `read`, `exec`, `wait`, `command`. Do not describe the project as a
-daily driver yet.
+Current status: Milestone 4 (2026-11-19). Variables, expansion, redirections,
+pipelines, control flow, functions, positional parameters, traps, `set`,
+script files, and job control (`&`, `jobs`, `fg`, `bg`, `wait`, Ctrl-Z) work;
+14 differential cases agree with dash and bash. History, the line editor and
+completion do not, and neither do `local`, `read`, `exec`, `command`. Do not
+describe the project as a daily driver yet.
 
 ## 2. Non-negotiable safety rules
 

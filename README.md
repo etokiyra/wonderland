@@ -3,11 +3,12 @@
 A Unix shell in C17 for Linux, with an optional narrative layer: a dark
 fairy-tale world inhabited by personas who react to what happens in the shell.
 
-**Status: Milestone 3b. Wonderland is a working shell for scripts and
-interactive use of the implemented features.** Variables, expansion,
-redirections, pipelines, `if`/`for`/`while`/`case`, functions, positional
-parameters, traps, `set`, and script files work. Job control, history and the
-line editor do not. Do not put it in `/etc/shells` and do not `chsh` to it.
+**Status: Milestone 4. Wonderland is a working shell for scripts and
+interactive use, including job control.** Variables, expansion, redirections,
+pipelines, control flow, functions, positional parameters, traps, `set`,
+script files, background jobs, `jobs`/`fg`/`bg`/`wait` and Ctrl-Z work.
+History, the line editor and completion do not. Do not put it in `/etc/shells`
+and do not `chsh` to it.
 
 The ordering principle is not decorative:
 
@@ -32,10 +33,18 @@ wonderland:~/Projects/wonderland $ cat <<EOF
 > the world remembers
 > EOF
 the world remembers
+wonderland:~/Projects/wonderland $ sleep 5 &
+[1] 4242
+wonderland:~/Projects/wonderland $ jobs
+[1] Running   sleep 5
+wonderland:~/Projects/wonderland $ Ctrl-Z
+[1]+ Stopped sleep 5
+wonderland:~/Projects/wonderland $ bg
+[1]+ sleep 5 &
 ```
 
 * Interactive prompt on stderr, with `$?` shown when nonzero; Ctrl-C returns
-  to a fresh prompt; terminal restored.
+  to a fresh prompt; Ctrl-Z suspends, `bg`/`fg` resume; terminal restored.
 * External commands via `fork`/`execve`, `$PATH` lookup, 127/126/128+N status
   mapping, per-stage process groups, pipelines of any length.
 * Variables and `export`; `$x`, `${x}`, `${x:-word}`, `${x#pat}`, `${#x}`,
@@ -44,6 +53,7 @@ the world remembers
   here-strings, applied left to right.
 * Control flow: `if`/`elif`/`else`, `while`, `until`, `for`, `case`; `break`,
   `continue`, `return`; groups and real subshells.
+* Job control: `cmd &`, `$!`, `jobs`, `fg`, `bg`, `wait`, `%n` specs, Ctrl-Z.
 * Functions with positional parameters; `$0`, `$1…`, `$@`, `$*`, `$#`,
   `shift`, `set --`.
 * `trap` on `EXIT`, `INT`, `TERM`; `set -e/-u/-x/-n` (documented
@@ -60,22 +70,23 @@ the world remembers
 
 | Missing | Arrives |
 |---|---|
-| Background jobs (`cmd &`), `jobs`, `fg`, `bg`, Ctrl-Z | M4 |
 | History, line editing, completion, prompt configuration | M5 |
+| `kill`, `disown`, `jobs -l`, warning on exit with stopped jobs | M8 polish |
 | `local`, `read`, `exec`, `command`, `type`, `wait`, `getopts`, `umask` | later |
 | Aliases | opt-in, if ever |
 | Personas, packs, `possess`, `rest`, `go-to-alice` | M3.5, M6–M7 |
 
-Known sharp edges (D-0076): `"$@"` adjacent to other text joins instead of
-splitting; non-whitespace `IFS` collapses repeated delimiters; INT/TERM traps
-run between commands rather than asynchronously; `set -e` implements the common
-suppression rule, not every POSIX corner; Ctrl-Z is a tested no-op until M4.
+Known sharp edges (D-0076, D-0082): `"$@"` adjacent to other text joins instead
+of splitting; non-whitespace `IFS` collapses repeated delimiters; INT/TERM
+traps and job notifications run between commands rather than asynchronously;
+`set -e` implements the common suppression rule, not every POSIX corner;
+background pipelines appear as one job rather than one entry per stage.
 
 ## Build and test
 
 ```sh
 make                 # build/wonderland
-make test            # 72 unit cases + 130 CLI checks + pty + 14 differential cases
+make test            # 72 unit cases + 138 CLI checks + pty + 14 differential cases
 make diff            # differential cases only (dash + bash required)
 make asan            # the same under ASan/UBSan
 make memcheck        # unit suite under valgrind (if installed)
@@ -96,7 +107,7 @@ src/parse      parser, here-document queue, diagnostics
 src/ast        arena, AST nodes, stable dump
 src/expand     expansion, arithmetic, splitting, globbing
 src/exec       AST execution, redirections, pipelines, functions, traps
-src/jobs       signal dispositions, later the job table
+src/jobs       signals, job table, waiting, terminal ownership
 src/builtins   cd, exit, export, unset, set, shift, trap, return, break...
 src/narrative  personas and events (isolated library, M3.5+)
 src/content    content pack loader (M6)

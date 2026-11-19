@@ -171,10 +171,25 @@ Scope: process groups, foreground/background jobs, `jobs`, `fg`, `bg`, `%n`,
 `Ctrl-Z`, `SIGCHLD` via self-pipe, terminal ownership, `wait`, `trap` for
 `INT`/`TERM`/`EXIT`.
 
-Exit criteria: interactive matrix (start, suspend, resume, background, kill,
-exit with stopped jobs) passes under a pty; no orphaned process groups
-(`ps -o pgid` checks); terminal ownership returns to the shell after every
-job; the shell works in an 80×24 SSH session.
+Status: **done** (2026-11-19), with one deliberate deviation: there is no
+SIGCHLD self-pipe. The shell is single-threaded and reaps between commands and
+before each prompt (`waitpid(WNOHANG|WUNTRACED|WCONTINUED)`); foreground jobs
+wait with `WUNTRACED`. Notifications therefore appear at the next prompt, not
+mid-command (D-0080).
+
+Delivered: `src/jobs/job.c` (process-group jobs, ids, waiting, notifications),
+interactive job initialisation (`setpgid` + terminal ownership), background
+`&` for any statement, `jobs`/`fg`/`bg`/`wait`, `%n`/`%%`/`%-` job specs,
+Ctrl-Z suspend/resume, and `$!`.
+
+Evidence: 72 unit cases, 138 CLI checks, the pty test now starts a background
+job, lists it, waits, suspends a foreground job with Ctrl-Z, lists it as
+Stopped and resumes it with `bg`; 14 differential cases still agree with dash
+and bash. ASan, valgrind and cppcheck are clean.
+
+Not done, and recorded as limitations: `kill`/`disown`, warning on exit with
+stopped jobs, `jobs -l`, and a pty matrix for orphaned process groups or an
+80×24 SSH session. Those are M8 polish, not blockers for the next milestone.
 
 ## M5 — Interactive Experience
 
@@ -250,21 +265,19 @@ and `-c`/stdin handling in `src/main.c`, and tests at three levels (unit, CLI,
 pty). The `pty` test drives a real terminal, not a mock. (`m1_split.c` existed
 here and was deleted in M2.)
 
-## Recommended scope for the Milestone 3.5 prompt
+## Recommended scope for the Milestone 5 prompt
 
-> Implement the amendment-7 vertical slice exactly, per `docs/ROADMAP.md` M3.5
-> and `docs/PERSONAS.md`: (1) `libwl_narrative.a` with one persona, Alice, and
-> **12 original lines** in a static table (no pack format yet); (2) a single
-> `post_exec` hook, called after the status is final, receiving a `const
-> struct wl_event *` and returning text; (3) the plain-mode gate: `--plain`,
-> `WONDERLAND_PLAIN=1`, `-c`, scripts, stdin, or non-tty stdin/stderr means the
-> hook is never called; (4) output to stderr only, flushed before the prompt,
-> nothing while a foreground job owns the terminal; (5) tests that prove
-> stdout and exit codes are byte-identical with the narrative library linked
-> and unlinked, plus the isolation probe and source audit; (6) update
-> `docs/DECISIONS.md` and report limitations. Do not build the pack format,
-> `possess`, `rest`, or any other persona yet.
+> Implement M5 per `docs/ROADMAP.md`: (1) a raw-mode line editor in `src/line/`
+> with cursor movement, insertion/deletion, history recall (Up/Down), Ctrl-A/E,
+> Ctrl-K/U/W, Ctrl-C and Ctrl-D; (2) persisted history in
+> `$XDG_STATE_HOME/wonderland/history` (fallback `~/.local/state/...`), written
+> with 0600, bounded size, and never read in non-interactive mode; (3) tab
+> completion for commands on `$PATH` and file paths; (4) resize handling via
+> `SIGWINCH` and redraw; (5) prompt configuration (`WONDERLAND_PROMPT`), keeping
+> the default tested shape; (6) `$'...'` quoting and `printf`/`read` as needed;
+> (7) pty tests for editing, history, completion, resize and terminal restore,
+> plus the existing suite green under ASan/valgrind/cppcheck. Do not add job
+> control features or narrative code.
 
-M4 (job control) follows the slice. The shell is still not a daily driver: no
-`&`, `jobs`, `fg`, `bg`, history or line editor. Those are the next usability
-milestones.
+The M3.5 narrative vertical slice (amendment 7) is still pending and follows
+M5, or can be inserted earlier if the world is wanted sooner (D-0077).

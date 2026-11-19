@@ -76,7 +76,9 @@ specification, not against another shell.
 | Script files with arguments; `-c CMD name args` | `tests/run.sh` |
 | Differential agreement with dash and bash | `tests/diff.sh`, 14 cases |
 | Syntax diagnostics with line, column and caret | `tests/unit/test_ast.c`, `tests/run.sh` |
-| Background `&`, job control, non-whitespace `IFS` exactness, `"pre$@"` adjacency | **not implemented** (M4, D-0068, D-0076) |
+| Background `&` for any statement, `$!`, `wait` | `tests/run.sh`, pty |
+| `jobs`, `fg`, `bg`, `%n`/`%%`/`%-`, Ctrl-Z suspend/resume | `tests/run.sh`, pty |
+| Non-whitespace `IFS` exactness, `"pre$@"` adjacency, `kill`/`disown`, async job notifications | **not implemented/approximate** (D-0068, D-0076, D-0082) |
 
 ### 3.1 POSIX surface
 

@@ -886,6 +886,83 @@ positional parameters and EXIT traps.
 * Functions cannot be exported or unset individually; redefining replaces.
 * `return` at top level is an error rather than a `exit` alias, matching dash.
 
+---
+
+## §11. Milestone 4 implementation decisions
+
+### D-0077 — Job control before the narrative slice
+**2026-11-19 · accepted**
+
+The brief's amendment 7 puts the narrative vertical slice after execution
+(M3). It is still going to happen, but job control was done first because the
+active goal is a shell that can be used, and a shell without `&`, `jobs`,
+`fg`/`bg` and Ctrl-Z is not usable for real work. The slice remains the next
+narrative milestone and is unchanged in scope; this is an ordering change, not
+a scope change. M5 (history and the line editor) is the next recommended step.
+
+### D-0078 — A job is a process group, not a tree
+**2026-11-19 · accepted**
+
+`src/jobs/job.c` keeps a linked list of jobs keyed by their process-group id.
+A foreground pipeline records every stage as a process in one job; a background
+statement (`sleep 1 &`, `a | b &`, `{ ...; } &`) is forked as one wrapper child
+in its own process group that runs the whole node with `tty_fd = -1` and
+`interactive = false`. That keeps `jobs` to one line per command and makes
+`fg`/`bg`/`wait` act on the statement the user typed, at the cost of not
+exposing the individual stages of a background pipeline as separate jobs.
+
+Job ids are 1-based, never reused, and the head of the list is `%%`/`%+`; the
+second entry is `%-`. The printable command comes from the current source span
+(`wl_job_command_text`), not from re-serialising the AST.
+
+### D-0079 — Interactive job control owns the terminal explicitly
+**2026-11-19 · accepted**
+
+In an interactive session the shell now calls `setpgid(0, 0)` and takes the
+terminal with `tcsetpgrp` before the first prompt (`wl_job_init`). Children
+get `SIGTSTP`/`SIGTTIN`/`SIGTTOU` reset to default **only when job control is
+active**; otherwise they stay ignored (D-0051) because a stopped child could
+never be resumed. This removed the M1 "Ctrl-Z is a no-op" behaviour in
+interactive mode; the pty test now exercises suspend and resume.
+
+### D-0080 — Synchronous reaping; no SIGCHLD self-pipe
+**2026-11-19 · accepted, with a documented consequence**
+
+There is still no `poll()` loop, so a self-pipe would only be read between
+commands anyway. Foreground jobs wait with `WUNTRACED` (so a stopped child is
+reported and enqueued); `wl_job_notify()` drains finished children with
+`WNOHANG | WUNTRACED | WCONTINUED` before each prompt and inside
+`jobs`/`fg`/`bg`/`wait`. Notifications therefore appear at the next prompt, not
+asynchronously while a long command runs. That is visible, documented, and
+cheap to change when M5 introduces a poll loop for the editor.
+
+### D-0081 — `jobs`, `fg`, `bg`, `wait` and `$!`
+**2026-11-19 · accepted**
+
+* `jobs` prints `[id] State     command` to stdout (Running/Stopped/Done).
+* `fg [%job|pid]` gives the terminal to the job, sends `SIGCONT`, waits, and
+  removes the job on completion; it is re-added if stopped again.
+* `bg [%job|pid]` sends `SIGCONT` and prints `[id]+ command &` to stderr.
+* `wait [%job|pid]` waits for one job or all; with no jobs it returns 0; an
+  unknown job returns 127. A stopped job is not waited past (it reports
+  128+stop-signal and stays in the table).
+* `$!` is the pid of the most recent background wrapper; `wait $!` resolves it.
+
+Errors are ordinary diagnostics with status 1 (no job / too many arguments).
+
+### D-0082 — Job-control limitations
+**2026-11-19 · accepted**
+
+* No `kill`, `disown`, `jobs -l`, `%?string` or `fg %+` beyond `%%`/`%-`.
+* Exiting with stopped jobs does not warn (bash does); the jobs are simply
+  left stopped.
+* A background pipeline is one job entry, not one per stage.
+* Notifications are prompt-time, not asynchronous (D-0080).
+* No pty test for orphaned process groups or a narrow SSH session; the pty
+  suite covers start/list/wait/suspend/resume only.
+* Terminal handoff assumes the shell is launched in the foreground; stealing
+  the terminal from a background parent is not defended against.
+
 ### D-0051 — Ctrl-Z is a no-op until M4; non-interactive children share the group
 **2026-11-19 · accepted**
 

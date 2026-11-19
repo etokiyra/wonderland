@@ -41,15 +41,19 @@ reference shells on every `make test`; remaining gaps are written down
 tests that check "roughly the right output".
 
 ### R4. Job control and terminal ownership races
-**Likelihood: high. Impact: unusable terminal, orphaned processes, data loss
+**Likelihood: medium. Impact: unusable terminal, orphaned processes, data loss
 in editors.**
 `tcsetpgrp`/`SIGTTOU`/`SIGTTIN`/`SIGCHLD` interactions are racy by nature, and
 a mistake leaves the user in raw mode with no echo.
-*Mitigations:* one reaper, self-pipe signal handling, process-group tests
-under a pty with `ps` assertions, restore-on-every-exit-path with a guard flag,
-and the "never write while a foreground job owns the tty" rule.
-*Early warning:* `stty sane` appearing in bug reports; tests that need
-sleep-based synchronisation.
+*Mitigations:* interactive job control now owns its process group and the
+terminal explicitly (D-0079); foreground waits use `WUNTRACED`, stopped jobs
+enter the table, and `fg`/`bg`/`wait` act on the group (D-0081); the pty test
+starts a background job, suspends a foreground job with Ctrl-Z, lists it and
+resumes it. Residual: there is still no self-pipe, so completions are noticed
+at the next prompt (D-0080), and there is no orphan/80×24 pty matrix yet.
+*Early warning:* `stty sane` in bug reports; jobs that stay listed after
+`wait`; `fg` returning without the terminal; tests needing sleep-based
+synchronisation.
 
 ### R5. Memory ownership bugs (use-after-free, leaks, double free)
 **Likelihood: medium-high. Impact: crashes, and crashes in a shell are scary.**
