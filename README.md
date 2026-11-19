@@ -77,6 +77,12 @@ the world remembers
   `WONDERLAND_COLOR`, `WONDERLAND_ICONS`, `WONDERLAND_GIT` and
   `WONDERLAND_DURATION` toggle parts, and `NO_COLOR`/`TERM=dumb`/an ASCII
   locale fall back to plain text.
+* Stock interactive shortcuts: `ls` becomes
+  `eza --icons=always --group-directories-first -1` when eza is installed,
+  with `l`/`ll`/`la`/`lla` composing on top; `gd`, `ga`, `gc`, `gl`, `gs`,
+  `gst`, `gsp`, `gp`, `gpl`, `gsw`, `gsm`, `gb`, `gbd`, `gco`, `gsh` wrap
+  git, and `lg` launches lazygit. They are functions, so `-c` and scripts
+  still see the real commands. `WONDERLAND_SHORTCUTS=0` disables them.
 * History persisted at `$XDG_STATE_HOME/wonderland/history` (0600, bounded).
 * `$'...'` ANSI-C quoting and a `read [-r]` builtin.
 * Builtins: `:`, `bg`, `break`, `cd`, `continue`, `exit`, `export`, `fg`,
@@ -114,7 +120,7 @@ candidates or quote paths with spaces.
 
 ```sh
 make                 # build/wonderland
-make test            # 112 unit cases + 154 CLI checks + pty + 14 differential cases
+make test            # 112 unit cases + 156 CLI checks + pty + 14 differential cases
 make diff            # differential cases only (dash + bash required)
 make asan            # the same under ASan/UBSan
 make memcheck        # unit suite under valgrind (if installed)

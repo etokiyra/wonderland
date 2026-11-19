@@ -1412,3 +1412,39 @@ Tests: exact left/right strings for the styled prompt, failure ring, ASCII
 fallback, repo-root triangle, user segment, branch truncation, repo-root
 detection, visible-width math, and pty editing/job coverage with both the
 Starship and `classic` prompts.
+
+---
+
+## §19. Stock interactive shortcuts
+
+### D-0112 — eza/git conveniences are functions, not aliases
+**2026-11-19 · accepted**
+
+The Caelestia fish config's `alias ls='eza --icons
+--group-directories-first -1'` and its git abbreviations are imported as
+stock **functions**, installed once at interactive startup:
+
+* `ls` runs `eza --icons=always --group-directories-first -1` when eza is on
+  `PATH`; otherwise `ls` stays the system command.
+* `l`, `ll`, `la`, `lla` call `ls` with the fish abbreviations' arguments, so
+  they compose with either eza or the system `ls`.
+* `gd`, `ga`, `gc`, `gl`, `gs`, `gst`, `gsp`, `gp`, `gpl`, `gsw`, `gsm`,
+  `gb`, `gbd`, `gco`, `gsh` wrap the same git commands; `lg` runs lazygit.
+  They are installed only when the tool is found on `PATH`.
+* `WONDERLAND_SHORTCUTS=0` disables the whole set.
+
+This deliberately does not add an alias or abbreviation language. Functions
+run only in interactive sessions, so `-c`, scripts, stdin and child shells
+still see the real commands. The bootstrap is a small shell script executed
+through the normal parser at startup, then the per-line arena is reset;
+function definitions live for the session and can be replaced by the user.
+
+Tool lookup walks `PATH` with `stat` + `access`, never `fork`. Personal
+aliases (`vynl-dev`, `fetchn`), zoxide's `cd` hook, direnv, the Caelestia
+palette and the fastfetch greeting are not imported: they are user- or
+rice-specific, need a hook/config file, or run external presentation at
+startup. The stock set is the visual `ls` and the git/lazygit shortcuts.
+
+Evidence: a dedicated pty session runs `ll README.md` with `--plain` and
+asserts the file is listed; the main pty session still passes editing/job
+coverage. Manual checks show eza colors/icons and `gs`/`ll` output.

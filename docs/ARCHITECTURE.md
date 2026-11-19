@@ -292,6 +292,7 @@ and the narrative state only borrows it.
 | death screen, mirror prompt fragment | `src/main.c` (`wl_emit_death_screen`, `wl_apply_mirror`) |
 | Starship-style left/right prompt, git/path/time segments | `src/term/prompt.c` |
 | right-prompt alignment, visible-width cursor math, OSC 133 mark | `src/line/editor.c`, `src/main.c` |
+| stock interactive eza/git functions | `src/main.c` (`wl_install_shortcuts`) |
 | state tests | `tests/unit/test_state.c` |
 
 The state file is owned by the shell (`struct wl_state library`) and written

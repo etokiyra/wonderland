@@ -35,11 +35,12 @@ Library stores a versioned, checksummed cycle/persona/checkpoint file
 atomically; `rest`/`respawn` restore cwd, a whitelisted variable set and the
 persona only; `go-to-alice` shares `exit`. The prompt is a Starship-compatible
 stock theme (left duration/jobs/user/character; right-aligned directory, git
-branch and clock) with `classic`, ASCII and `NO_COLOR` fallbacks. Plain
-mode loads no packs and never reads or writes state. Missing: the rest of the
+branch and clock) with `classic`, ASCII and `NO_COLOR` fallbacks, plus stock
+interactive functions for eza `ls` and git/lazygit shortcuts. Plain mode
+loads no packs and never reads or writes state. Missing: the rest of the
 cast, Bash extensions, `local`, `exec`, `kill`/`disown`, a config file. It is
-not installed in
-`/etc/shells` and must not be until the dogfooding gate is met. Content packs
+not installed in `/etc/shells` and must not be until the dogfooding gate is
+met. Content packs
 are normative: see `docs/CONTENT_FORMAT.md` and `packs/core/`; never mark
 unverified text as canonical.
 
@@ -71,7 +72,7 @@ the world feel better.
 
 ```sh
 make                  # build build/wonderland
-make test             # unit + CLI + pty + isolation + differential tests (112/154/14)
+make test             # unit + CLI + pty + isolation + differential tests (112/156/14)
 make diff             # differential cases only (needs dash and bash)
 make asan             # rebuild with ASan/UBSan and run the same suite
 make memcheck         # unit suite under valgrind (developer tool)

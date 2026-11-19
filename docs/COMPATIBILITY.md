@@ -65,6 +65,7 @@ specification, not against another shell.
 | `cd` (HOME, `-`, PWD/OLDPWD) and `exit` (0–255) | `tests/unit/test_builtins.c`, `tests/run.sh` |
 | `-c`, stdin, `-` | `tests/run.sh` |
 | Starship-style left/right prompt, `$?`/git/job/duration display, HOME abbreviation, `classic`/ASCII/`NO_COLOR` fallbacks | `tests/unit/test_prompt.c`, `tests/pty/pty_test.c` |
+| Stock interactive `ls`/git shortcuts are functions only; non-interactive commands are unchanged | pty shortcut session; `wl_install_shortcuts` is interactive-gated |
 | Ctrl-C at the prompt; unchanged termios | `tests/pty/pty_test.c` |
 | Ctrl-Z is a no-op, does not wedge the shell (D-0051) | `tests/pty/pty_test.c` |
 | `if`/`elif`/`else`, `while`, `until`, `for`, `case` | `tests/cases/06–08`, `tests/run.sh`, `tests/diff.sh` |

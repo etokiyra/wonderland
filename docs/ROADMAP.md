@@ -271,7 +271,8 @@ job-table counters.
 
 Post-M7 presentation: the stock prompt is now Starship-compatible, with a
 left duration/jobs/user/character prompt and a right-aligned directory, git
-branch and clock (D-0111).
+branch and clock (D-0111). Stock interactive functions add eza-backed `ls`
+and the fish git/lazygit shortcuts without an alias language (D-0112).
 
 Evidence: state round-trip, permissions, missing/corrupt/truncated/wrong-version
 files, and `clear_rest` in unit tests; pty coverage of `rest`/`respawn`,
