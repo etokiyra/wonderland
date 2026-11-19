@@ -41,6 +41,28 @@ int wl_test_str_eq(const char *left, const char *right) {
     return strcmp(left, right) == 0;
 }
 
+void wl_test_assert_str(const char *actual, const char *expected,
+                        const char *file, int line) {
+    if (wl_test_str_eq(actual, expected)) {
+        return;
+    }
+    wl_current_failures++;
+    printf("%s:%d: string mismatch\n  actual:   %s\n  expected: %s\n", file,
+           line, (actual != NULL) ? actual : "(null)",
+           (expected != NULL) ? expected : "(null)");
+}
+
+void wl_test_assert_contains(const char *haystack, const char *needle,
+                             const char *file, int line) {
+    if (haystack != NULL && needle != NULL && strstr(haystack, needle) != NULL) {
+        return;
+    }
+    wl_current_failures++;
+    printf("%s:%d: substring not found\n  needle:   %s\n  haystack: %s\n", file,
+           line, (needle != NULL) ? needle : "(null)",
+           (haystack != NULL) ? haystack : "(null)");
+}
+
 int wl_test_run(void) {
     int failed_cases = 0;
 
@@ -76,9 +98,10 @@ int wl_test_run(void) {
 
 int main(void) {
     wl_suite_opts();
-    wl_suite_split();
     wl_suite_path();
     wl_suite_prompt();
     wl_suite_builtins();
+    wl_suite_ast();
+    wl_suite_fuzz();
     return wl_test_run() == 0 ? 0 : 1;
 }

@@ -36,6 +36,12 @@ int wl_test_run(void);
 /* Value comparison helpers (kept out of macros so the header stays lean). */
 int wl_test_str_eq(const char *left, const char *right);
 
+/* Reports a mismatch with both values; used by the macros below. */
+void wl_test_assert_str(const char *actual, const char *expected,
+                        const char *file, int line);
+void wl_test_assert_contains(const char *haystack, const char *needle,
+                             const char *file, int line);
+
 extern unsigned long wl_test_assertions;
 
 #define WL_ASSERT(expr)                                                       \
@@ -59,9 +65,13 @@ extern unsigned long wl_test_assertions;
 #define WL_ASSERT_STR_EQ(actual, expected)                                    \
     do {                                                                      \
         wl_test_assertions++;                                                 \
-        if (!wl_test_str_eq((actual), (expected))) {                          \
-            wl_test_fail(__FILE__, __LINE__, #actual " == " #expected);       \
-        }                                                                     \
+        wl_test_assert_str((actual), (expected), __FILE__, __LINE__);         \
+    } while (0)
+
+#define WL_ASSERT_CONTAINS(haystack, needle)                                  \
+    do {                                                                      \
+        wl_test_assertions++;                                                 \
+        wl_test_assert_contains((haystack), (needle), __FILE__, __LINE__);    \
     } while (0)
 
 #define WL_TEST(name) static void name(void)

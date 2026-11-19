@@ -15,9 +15,9 @@
  */
 
 static char wl_dir[WL_PATH_MAX];
-static char wl_tool[WL_PATH_MAX];
-static char wl_noexec[WL_PATH_MAX];
-static char wl_subdir[WL_PATH_MAX];
+static char wl_tool[WL_PATH_MAX + 8];
+static char wl_noexec[WL_PATH_MAX + 8];
+static char wl_subdir[WL_PATH_MAX + 8];
 static char wl_saved_path[WL_PATH_MAX];
 static char wl_saved_cwd[WL_PATH_MAX];
 static int wl_had_path;
