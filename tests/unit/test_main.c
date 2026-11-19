@@ -103,5 +103,7 @@ int main(void) {
     wl_suite_builtins();
     wl_suite_ast();
     wl_suite_fuzz();
+    wl_suite_var();
+    wl_suite_arith();
     return wl_test_run() == 0 ? 0 : 1;
 }

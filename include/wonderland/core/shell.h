@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <sys/types.h>
 
+#include "core/var.h"
+
 /*
  * Session state.
  *
@@ -31,9 +33,15 @@ struct wl_shell {
 
     /* Terminal fd for foreground handoff, or -1 when not interactive. */
     int tty_fd;
+
+    /* Shell variables and the exported environment. */
+    struct wl_vars vars;
 };
 
 void wl_shell_init(struct wl_shell *sh, bool plain, bool interactive);
+
+/* Releases the variable store. The shell struct itself is stack-owned. */
+void wl_shell_destroy(struct wl_shell *sh);
 
 /* Records the status of the last command. */
 void wl_shell_set_status(struct wl_shell *sh, int status);

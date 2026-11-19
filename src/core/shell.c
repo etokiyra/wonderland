@@ -3,6 +3,8 @@
 #include <string.h>
 #include <unistd.h>
 
+extern char **environ;
+
 /*
  * Session state. Deliberately small: fields appear when a milestone needs
  * them, not in anticipation of one.
@@ -16,6 +18,11 @@ void wl_shell_init(struct wl_shell *sh, bool plain, bool interactive) {
     sh->last_status = 0;
     sh->tty_fd = interactive ? STDIN_FILENO : -1;
     sh->shell_pgid = getpgrp();
+    wl_vars_init(&sh->vars, environ);
+}
+
+void wl_shell_destroy(struct wl_shell *sh) {
+    wl_vars_free(&sh->vars);
 }
 
 void wl_shell_set_status(struct wl_shell *sh, int status) {

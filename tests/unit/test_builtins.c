@@ -96,12 +96,13 @@ WL_TEST(cd_with_no_argument_uses_home) {
     char *argv[] = {"cd", NULL};
 
     WL_ASSERT(wl_ensure_fixture());
-    WL_ASSERT_INT_EQ(setenv("HOME", wl_tmp, 1), 0);
+    WL_ASSERT(wl_var_set(&shell.vars, "HOME", 4, wl_tmp, strlen(wl_tmp), true));
     WL_ASSERT(wl_builtin_run(&shell, 1, argv));
     WL_ASSERT_INT_EQ(shell.last_status, 0);
     WL_ASSERT(getcwd(cwd, sizeof cwd) != NULL);
     WL_ASSERT_STR_EQ(cwd, wl_tmp);
-    WL_ASSERT_STR_EQ(getenv("PWD"), wl_tmp);
+    WL_ASSERT_STR_EQ(wl_var_get(&shell.vars, "PWD", 3), wl_tmp);
+    wl_shell_destroy(&shell);
 }
 
 WL_TEST(cd_reports_failure) {
@@ -113,6 +114,7 @@ WL_TEST(cd_reports_failure) {
     WL_ASSERT(wl_builtin_run(&shell, 2, argv));
     wl_restore_stderr();
     WL_ASSERT_INT_EQ(shell.last_status, 1);
+    wl_shell_destroy(&shell);
 }
 
 WL_TEST(cd_rejects_too_many_arguments) {
@@ -123,6 +125,7 @@ WL_TEST(cd_rejects_too_many_arguments) {
     WL_ASSERT(wl_builtin_run(&shell, 3, argv));
     wl_restore_stderr();
     WL_ASSERT_INT_EQ(shell.last_status, 1);
+    wl_shell_destroy(&shell);
 }
 
 WL_TEST(exit_uses_the_given_status) {
@@ -132,6 +135,7 @@ WL_TEST(exit_uses_the_given_status) {
     WL_ASSERT(wl_builtin_run(&shell, 2, argv));
     WL_ASSERT_INT_EQ(shell.last_status, 7);
     WL_ASSERT(!shell.running);
+    wl_shell_destroy(&shell);
 }
 
 WL_TEST(exit_defaults_to_the_previous_status) {
@@ -142,6 +146,7 @@ WL_TEST(exit_defaults_to_the_previous_status) {
     WL_ASSERT(wl_builtin_run(&shell, 1, argv));
     WL_ASSERT_INT_EQ(shell.last_status, 42);
     WL_ASSERT(!shell.running);
+    wl_shell_destroy(&shell);
 }
 
 WL_TEST(exit_rejects_non_numeric_arguments_and_stops) {
@@ -153,6 +158,7 @@ WL_TEST(exit_rejects_non_numeric_arguments_and_stops) {
     wl_restore_stderr();
     WL_ASSERT_INT_EQ(shell.last_status, 2);
     WL_ASSERT(!shell.running);
+    wl_shell_destroy(&shell);
 }
 
 WL_TEST(exit_refuses_ambiguous_argument_lists_without_stopping) {
@@ -164,6 +170,7 @@ WL_TEST(exit_refuses_ambiguous_argument_lists_without_stopping) {
     wl_restore_stderr();
     WL_ASSERT_INT_EQ(shell.last_status, 1);
     WL_ASSERT(shell.running);
+    wl_shell_destroy(&shell);
 }
 
 WL_TEST(unknown_names_are_not_builtins) {
@@ -171,6 +178,7 @@ WL_TEST(unknown_names_are_not_builtins) {
     char *argv[] = {"echo", "hi", NULL};
 
     WL_ASSERT(!wl_builtin_run(&shell, 2, argv));
+    wl_shell_destroy(&shell);
 }
 
 void wl_suite_builtins(void) {
