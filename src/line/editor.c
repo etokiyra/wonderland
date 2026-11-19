@@ -3,6 +3,7 @@
 #include "core/limits.h"
 #include "jobs/signal.h"
 #include "line/history.h"
+#include "term/prompt.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -540,7 +541,7 @@ enum wl_edit_status wl_editor_read(struct wl_editor *editor, const char *prompt,
         return WL_EDIT_ERROR;
     }
     (void)snprintf(editor->prompt, sizeof editor->prompt, "%s", prompt);
-    editor->prompt_width = strlen(editor->prompt);
+    editor->prompt_width = wl_prompt_visible_width(editor->prompt);
     editor->length = 0;
     editor->cursor = 0;
     editor->buffer[0] = '\0';

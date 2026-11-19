@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "ast/arena.h"
@@ -121,6 +122,91 @@ static bool wl_env_flag(const char *name) {
     const char *value = getenv(name);
 
     return value != NULL && value[0] != '\0' && strcmp(value, "0") != 0;
+}
+
+static bool wl_ui_enabled(const char *name, bool fallback) {
+    const char *value = getenv(name);
+
+    if (value == NULL || value[0] == '\0') {
+        return fallback;
+    }
+    return strcmp(value, "0") != 0 && strcmp(value, "off") != 0 &&
+           strcmp(value, "never") != 0;
+}
+
+static bool wl_ui_utf8(void) {
+    const char *locale = getenv("LC_ALL");
+
+    if (locale == NULL || locale[0] == '\0') {
+        locale = getenv("LC_CTYPE");
+    }
+    if (locale == NULL || locale[0] == '\0') {
+        locale = getenv("LANG");
+    }
+    if (locale == NULL) {
+        return false;
+    }
+    return strstr(locale, "UTF-8") != NULL ||
+           strstr(locale, "utf-8") != NULL || strstr(locale, "utf8") != NULL ||
+           strstr(locale, "UTF8") != NULL;
+}
+
+/*
+ * Presentation defaults: colour and icons on a UTF-8 terminal, no colour for
+ * TERM=dumb or NO_COLOR, and explicit WONDERLAND_* values always win. These
+ * affect the prompt only; command output and diagnostics stay untouched.
+ */
+static bool wl_ui_color(void) {
+    const char *value = getenv("WONDERLAND_COLOR");
+    const char *term;
+
+    if (value != NULL && value[0] != '\0') {
+        return wl_ui_enabled("WONDERLAND_COLOR", true);
+    }
+    if (getenv("NO_COLOR") != NULL) {
+        return false;
+    }
+    term = getenv("TERM");
+    return term == NULL || strcmp(term, "dumb") != 0;
+}
+
+static bool wl_ui_icons(void) {
+    const char *value = getenv("WONDERLAND_ICONS");
+    const char *term = getenv("TERM");
+
+    if (value != NULL && value[0] != '\0') {
+        return wl_ui_enabled("WONDERLAND_ICONS", true);
+    }
+    if (term != NULL && strcmp(term, "dumb") == 0) {
+        return false;
+    }
+    return wl_ui_utf8();
+}
+
+static unsigned wl_active_jobs(const struct wl_shell *shell) {
+    unsigned count = 0;
+
+    for (struct wl_job *job = shell->jobs.head; job != NULL; job = job->next) {
+        if (job->state != WL_JOB_DONE) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static long wl_elapsed_ms(const struct timespec *start,
+                          const struct timespec *end) {
+    long seconds = (long)(end->tv_sec - start->tv_sec);
+    long nanoseconds = end->tv_nsec - start->tv_nsec;
+
+    if (nanoseconds < 0) {
+        seconds--;
+        nanoseconds += 1000000000L;
+    }
+    if (seconds > 3600) {
+        return 3600L * 1000L;
+    }
+    return seconds * 1000L + nanoseconds / 1000000L;
 }
 
 /*
@@ -339,13 +425,20 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
     bool continuing = false;
     unsigned long seen_started = shell->jobs.started;
     unsigned long seen_finished = shell->jobs.finished;
+    struct wl_prompt_style style;
+    bool show_git = wl_ui_enabled("WONDERLAND_GIT", true);
+    bool show_duration = wl_ui_enabled("WONDERLAND_DURATION", true);
+    long last_duration_ms = 0;
+
+    style.color = wl_ui_color();
+    style.icons = wl_ui_icons();
 
     if (getcwd(previous_cwd, sizeof previous_cwd) != NULL) {
         have_previous_cwd = true;
     }
 
     for (;;) {
-        char prompt[256];
+        char prompt[512];
         char cwd[WL_PATH_MAX];
         enum wl_edit_status read_status;
         size_t length = 0;
@@ -354,18 +447,28 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
             (void)snprintf(cwd, sizeof cwd, "?");
         }
         if (continuing) {
-            (void)snprintf(prompt, sizeof prompt, "%s", "> ");
+            if (style.color) {
+                (void)snprintf(prompt, sizeof prompt, "\x1b[2m> \x1b[0m");
+            } else {
+                (void)snprintf(prompt, sizeof prompt, "%s", "> ");
+            }
         } else {
             const char *custom = getenv("WONDERLAND_PROMPT");
+            char branch[64];
+            const char *shown_branch = NULL;
 
             wl_job_notify(shell);
             wl_emit_job_finishes(shell, &seen_finished, cwd);
             if (custom != NULL && custom[0] != '\0') {
                 (void)snprintf(prompt, sizeof prompt, "%s", custom);
             } else {
-                (void)wl_prompt_format(prompt, sizeof prompt,
-                                       shell->last_status, cwd,
-                                       getenv("HOME"));
+                if (show_git && wl_prompt_git(cwd, branch, sizeof branch)) {
+                    shown_branch = branch;
+                }
+                (void)wl_prompt_format_ex(
+                    prompt, sizeof prompt, shell->last_status, cwd,
+                    getenv("HOME"), shown_branch, wl_active_jobs(shell),
+                    show_duration ? last_duration_ms : 0, &style);
             }
             wl_apply_mirror(prompt, sizeof prompt);
         }
@@ -438,6 +541,7 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
             struct wl_diag diag;
             struct wl_node *program;
 
+            last_duration_ms = 0;
             wl_diag_clear(&diag);
             program = wl_parse_source(line, used, "<stdin>", arena, &diag);
             if (program == NULL) {
@@ -456,7 +560,18 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
 
             shell->source = line;
             shell->source_length = used;
-            (void)wl_exec_program(shell, program);
+            {
+                struct timespec started;
+                struct timespec finished;
+                bool timed =
+                    clock_gettime(CLOCK_MONOTONIC, &started) == 0;
+
+                (void)wl_exec_program(shell, program);
+                if (timed &&
+                    clock_gettime(CLOCK_MONOTONIC, &finished) == 0) {
+                    last_duration_ms = wl_elapsed_ms(&started, &finished);
+                }
+            }
             shell->source = NULL;
             shell->source_length = 0;
             wl_emit_job_starts(shell, &seen_started, cwd);

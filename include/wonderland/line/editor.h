@@ -29,8 +29,8 @@ struct wl_editor {
     size_t length;
     size_t cursor;
 
-    char prompt[256];
-    size_t prompt_width;
+    char prompt[512];
+    size_t prompt_width; /* visible columns, not bytes (escapes/icons) */
 
     long history_position; /* -1 = editing the current line */
     char *saved_line;
