@@ -254,7 +254,9 @@ for the "why did it say that" question.
   weights.
 * `packs/core/` ships Alice (12 lines), Grimm (14), Nietzsche (13), Kafka (13)
   and Cioran (13), all `status = original` / `category = original`, with
-  `content_license = unspecified` until OQ-1/OQ-9 are decided.
+  `content_license = unspecified` until OQ-1/OQ-9 are decided. The four
+  non-Alice packs include `job_start`/`job_finish` lines; the shell now emits
+  those events from the job table (D-0108).
 * `make install` copies core packs to
   `$(PREFIX)/share/wonderland/packs/core`; discovery additionally honours
   `WONDERLAND_PACKS` and the XDG data directory.

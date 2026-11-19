@@ -256,9 +256,30 @@ state; `rest`/`respawn` scoped exactly as `docs/PERSONAS.md` §8; death screen;
 Black Rabbit presentation; mirror mode restricted to owned presentation;
 `go-to-alice` sharing `exit` logic with optional confirmation.
 
-Exit criteria: corrupt state file ⇒ fresh start with one note; `rest`/`respawn`
-round-trip test; no themed mechanic changes any exit status (property test:
-run a matrix with mechanics on/off and diff statuses).
+Status: **done** (2026-11-19), with the documented opt-ins and limitations in
+D-0104…D-0108.
+
+Delivered: `src/core/state.c` (versioned hex state file with FNV-1a checksum,
+0600 temp file, `fsync` plus `rename`, directory creation, corruption as a
+fresh cycle), cycle increment and persona persistence at interactive startup,
+`rest`, `respawn` (cwd, PATH/HOME/PWD/OLDPWD/SHELL, persona; explicit "not
+process resurrection" message), `go-to-alice` through the same exit path as
+`exit`, interactive confirmation disabled by `WONDERLAND_CONFIRM_EXIT=0`,
+opt-in death screen (`WONDERLAND_DEATH_SCREEN=1`), mirror prompt fragment
+(`WONDERLAND_MIRROR=1`), and Black Rabbit job_start/job_finish emission from
+job-table counters.
+
+Evidence: state round-trip, permissions, missing/corrupt/truncated/wrong-version
+files, and `clear_rest` in unit tests; pty coverage of `rest`/`respawn`,
+`pwd` restoration, persona persistence across sessions, cycle 1→2, corrupt
+state recovery with one note, mirror prompt, death screen not changing `$?`,
+and deterministic job_start/job_finish narration via a test pack. Plain and
+non-interactive sessions never read or write the state file.
+
+Exit criteria: corrupt state file ⇒ fresh start with one note (pty test);
+`rest`/`respawn` round-trip (unit + pty); themed mechanics do not change any
+exit status (pty checks `$?` after a death-screen failure; CLI checks plain
+statuses).
 
 ## M8 — Compatibility and Polish
 
@@ -299,20 +320,16 @@ and `-c`/stdin handling in `src/main.c`, and tests at three levels (unit, CLI,
 pty). The `pty` test drives a real terminal, not a mock. (`m1_split.c` existed
 here and was deleted in M2.)
 
-## Recommended scope for the Milestone 7 prompt
+## Recommended scope for the Milestone 8 prompt
 
-> Implement M7 per `docs/ROADMAP.md` and `docs/PERSONAS.md`: (1) Alice's
-> Library: a versioned, checksummed XDG state file with atomic writes, a
-> session cycle counter, corrupt-file recovery, and `cycle` as a narrative
-> event; (2) `rest`/`respawn` limited to cwd, whitelisted variables, active
-> persona and narrative state, with an explicit "not process resurrection"
-> message; (3) emit `job_start`/`job_finish` from the job table so the Black
-> Rabbit lines have a real source; (4) mirror mode restricted to
-> Wonderland-owned presentation; (5) `go-to-alice` sharing `exit` logic with
-> opt-out confirmation; (6) the death-screen presentation on failures,
-> suppressed by plain mode and never changing the status; (7) tests for state
-> corruption, round-trips, status invariance with mechanics on/off, and pty
-> coverage. Update docs and report limitations.
+> Implement M8 per `docs/ROADMAP.md` and `docs/COMPATIBILITY.md`: add
+> `local`, `printf`, `kill`/`disown`, `${var//a/b}`, `<<<`, `pipefail` and
+> the safest parts of `[[ ]]` (arrays last); grow each core persona toward
+> its line target (Alice 60, majors 40) with original writing and the blind
+> attribution gate; add `tests/cases/` fixtures for the new syntax and keep
+> `make diff` green; polish `make install` (man page, completion file) while
+> keeping the shell out of `/etc/shells`; update README, COMPATIBILITY and
+> DECISIONS with what is actually supported.
 
-After M7: M8 (Bash extensions, remaining cast scaling, `printf`/`local`/
-`kill`, install polish), then the dogfooding gate before `/etc/shells`.
+After M8: continue the dogfooding gate and the remaining cast (20–30
+personas), then consider `/etc/shells`.

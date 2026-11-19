@@ -3,13 +3,15 @@
 A Unix shell in C17 for Linux, with an optional narrative layer: a dark
 fairy-tale world inhabited by personas who react to what happens in the shell.
 
-**Status: Milestone 6. Wonderland is a working shell for scripts and daily
-interactive use, with an inhabited narrative layer.** Variables, expansion,
-redirections, pipelines, control flow, functions, positional parameters,
-traps, `set`, script files, job control, a raw-mode line editor, history and
-completion work. Five personas (Alice, Grimm, Nietzsche, Kafka, Cioran) live
-in content packs and react to commands; `possess` switches between them.
-`--plain` silences the world. Do not put it in `/etc/shells` and do not
+**Status: Milestone 7. Wonderland is a working shell for scripts and daily
+interactive use, with an inhabited narrative layer and persistent identity.**
+Variables, expansion, redirections, pipelines, control flow, functions,
+positional parameters, traps, `set`, script files, job control, a raw-mode
+line editor, history and completion work. Five personas (Alice, Grimm,
+Nietzsche, Kafka, Cioran) live in content packs and react to commands;
+`possess` switches between them, Alice's Library counts sessions, and
+`rest`/`respawn` checkpoint shell state. `--plain` silences the world and
+never touches the state file. Do not put it in `/etc/shells` and do not
 `chsh` to it yet.
 
 The ordering principle is not decorative:
@@ -67,20 +69,23 @@ wonderland:~/Projects/wonderland $ bg
 * History persisted at `$XDG_STATE_HOME/wonderland/history` (0600, bounded).
 * `$'...'` ANSI-C quoting and a `read [-r]` builtin.
 * Builtins: `:`, `bg`, `break`, `cd`, `continue`, `exit`, `export`, `fg`,
-  `jobs`, `possess`, `read`, `return`, `set`, `shift`, `trap`, `unset`,
-  `wait`.
+  `go-to-alice`, `jobs`, `possess`, `read`, `respawn`, `rest`, `return`,
+  `set`, `shift`, `trap`, `unset`, `wait`.
 * Narrative layer: five personas with original lines, reacting to failures,
-  successes, directory changes and session start/exit, on stderr only.
-  `possess -l` lists them, `possess grimm` switches. Plain mode, `-c`, scripts
-  and pipes silence the world completely (no packs are even loaded).
+  successes, directory changes, jobs and session start/exit, on stderr only.
+  `possess -l` lists them, `possess grimm` switches. Alice's Library persists
+  the session cycle and active persona; `rest` checkpoints cwd, a whitelisted
+  variable set and the persona; `respawn` restores those and says plainly that
+  processes are not resurrected. Plain mode, `-c`, scripts and pipes silence
+  the world completely (no packs or state are even loaded).
 * A parser for the whole grammar in `docs/GRAMMAR.md` with caret diagnostics.
 
 ## What does not work yet
 
 | Missing | Arrives |
 |---|---|
-| The rest of the cast (20–30 personas) and more lines per persona | M7–M8 |
-| Alice's Library, `rest`/`respawn`, mirror, `go-to-alice` | M7 |
+| The rest of the cast (20–30 personas) and more lines per persona | M8+ |
+| Config file for the `WONDERLAND_*` flags, richer mirror/death presentation | M8+ |
 | `kill`, `disown`, `jobs -l`, warning on exit with stopped jobs | M8 polish |
 | UTF-8 cursor movement, completion listing, Ctrl-R history search | M8 polish |
 | `local`, `exec`, `command`, `type`, `getopts`, `umask` | later |
@@ -98,7 +103,7 @@ candidates or quote paths with spaces.
 
 ```sh
 make                 # build/wonderland
-make test            # 93 unit cases + 143 CLI checks + pty + 14 differential cases
+make test            # 101 unit cases + 154 CLI checks + pty + 14 differential cases
 make diff            # differential cases only (dash + bash required)
 make asan            # the same under ASan/UBSan
 make memcheck        # unit suite under valgrind (if installed)
@@ -134,7 +139,8 @@ The history file lands in `$XDG_STATE_HOME/wonderland/history` (mode 0600).
 ## Layout
 
 ```
-src/core       shell state, variables, positional frames, options, buffers
+src/core       shell state, variables, positional frames, options, buffers,
+               Alice's Library state file (versioned, checksummed, atomic)
 src/term       terminal snapshot/restore, prompt formatting
 src/line       raw-mode editor, history, canonical reader used by read(1)
 src/lex        lexer, word parts, quoting, here-document bodies

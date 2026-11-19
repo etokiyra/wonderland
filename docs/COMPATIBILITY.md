@@ -84,7 +84,7 @@ specification, not against another shell.
 | `WONDERLAND_PROMPT`, SIGWINCH redraw | pty session; documented limits |
 | `$'...'` ANSI-C quoting | `tests/run.sh` |
 | `read [-r] name...`, `REPLY`, EOF status | `tests/run.sh` |
-| Narrative layer is outside the compatibility surface: five pack-loaded personas, interactive-only, stderr, plain-gated | `tests/pty/pty_test.c` (plain, narrative, `--plain` sessions), `tests/unit/test_pack.c`, `test_narrative.c` |
+| Narrative layer is outside the compatibility surface: five pack-loaded personas, interactive-only, stderr, plain-gated; mechanics (cycle, `rest`/`respawn`, death screen, mirror, `go-to-alice`) never change statuses | `tests/pty/pty_test.c` (plain, narrative, cycle/job, `--plain` sessions), `tests/unit/test_pack.c`, `test_narrative.c`, `test_state.c` |
 | Non-whitespace `IFS` exactness, `"pre$@"` adjacency, `kill`/`disown`, async job notifications, UTF-8 cursor movement, completion listing | **not implemented/approximate** (D-0068, D-0076, D-0082, D-0089) |
 
 ### 3.1 POSIX surface
@@ -222,7 +222,7 @@ candidates:
 `--version` prints:
 
 ```
-wonderland 0.5.0 (M5; narrative slice)
+wonderland 0.6.0 (M7; Alice's Library)
 ```
 
 and nothing else. Feature claims live in the docs, keyed to tests.

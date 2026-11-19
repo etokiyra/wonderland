@@ -280,6 +280,24 @@ Content loading happens only for interactive, non-plain sessions; `plain` is
 resolved before any pack is read. The loader owns pack memory for the session
 and the narrative state only borrows it.
 
+### 4.9 Implemented at M7
+
+| Step | File |
+|------|------|
+| versioned/checksummed state, atomic write, hex values | `src/core/state.c`, `include/wonderland/core/state.h` |
+| cycle increment, corrupt-file note, persona persistence | `src/main.c` (`wl_library_open`/`wl_library_close`) |
+| `rest`, `respawn`, `go-to-alice`, shared exit path | `src/builtins/builtins.c` |
+| job start/finish counters and last command | `src/jobs/job.c`, `include/wonderland/jobs/job.h` |
+| Black Rabbit event emission | `src/main.c` (`wl_emit_job_starts`/`wl_emit_job_finishes`) |
+| death screen, mirror prompt fragment | `src/main.c` (`wl_emit_death_screen`, `wl_apply_mirror`) |
+| state tests | `tests/unit/test_state.c` |
+
+The state file is owned by the shell (`struct wl_state library`) and written
+by main and the builtins. It lives in `core/` because it is inert data with no
+narrative dependency. The job module still knows nothing about narrative: it
+only exposes monotonic counters and a borrowed printable command, and main
+performs the emission through the same gate as every other event.
+
 ## 5. Core data model
 
 ```c

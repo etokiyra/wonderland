@@ -67,6 +67,19 @@ Rule for adding a persona: write 20 lines first, blind-test them against the
 existing cast, and only then add the record. A persona that cannot be told
 apart from an existing one is not added.
 
+Implementation status (2026-11-19, M7): `packs/core/` contains Alice (12
+lines, default), Grimm (14), Nietzsche (13), Kafka (13), Cioran (13). All are
+original and cover success/fail/session_start/dir_change/exit; Grimm,
+Nietzsche, Kafka and Cioran also have job lines, now emitted by the Black
+Rabbit hooks. Alice's Library persists the cycle and persona; `rest`/`respawn`
+restore cwd, `PATH`, `HOME`, `PWD`, `OLDPWD`, `SHELL` and the persona, and
+never claim to restore processes. The death screen is opt-in
+(`WONDERLAND_DEATH_SCREEN=1`), mirror mode is a prompt fragment (default off),
+and `go-to-alice` shares `exit` with an interactive confirmation that
+`WONDERLAND_CONFIRM_EXIT=0` disables. Scaling toward 20–30 personas and the
+100–300-line targets remains content work; the engine and format already
+support it.
+
 ## 4. Voice differentiation
 
 The requirement is stronger than "different topics": a line must be

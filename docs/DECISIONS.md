@@ -1236,3 +1236,98 @@ anti-repetition, possess, exit, silence, and placeholder rendering. The pty
 suite runs a plain session for deterministic editing and a separate narrative
 session that asserts Alice speaks on `false`, `possess -l` lists all five and
 `possess grimm` switches voice; a third session proves `--plain` stays silent.
+
+---
+
+## §16. Milestone 7 implementation decisions
+
+### D-0104 — Alice's Library state is small, versioned, and disposable
+**2026-11-19 · accepted**
+
+`src/core/state.c` writes `$XDG_STATE_HOME/wonderland/state` (fallback
+`~/.local/state/wonderland/state`) as ASCII lines with a magic/version header,
+a cycle counter, the active persona id, and the `rest` checkpoint. Values are
+hex-encoded so spaces and newlines survive without an escaping grammar; an
+FNV-1a checksum covers every byte before the checksum line. Writes go to
+`state.tmp` in the same directory with mode 0600, `fflush`, `fsync`, and
+`rename`. Missing is normal; a bad checksum, wrong version, or truncation
+discards the whole file, prints exactly one stderr note in an interactive
+session, and starts cycle 1. Plain and non-interactive sessions neither read
+nor write the file.
+
+The cycle advances once per interactive, non-plain startup. The active
+persona persists. Persona ids and variable names are validated, and files
+larger than 256 KiB are rejected as corrupt before parsing. `rest`
+additionally stores cwd, `PATH`, `HOME`, `PWD`, `OLDPWD`, `SHELL`, and the
+checkpoint time. Narrative recent-line ids and
+cooldowns are **not** persisted yet; `respawn` therefore resets the
+anti-repetition ring and cooldowns. That only affects silence, never
+execution, and is a documented M7 limitation.
+
+### D-0105 — `rest` and `respawn` restore a shell snapshot, not processes
+**2026-11-19 · accepted**
+
+`rest` takes no arguments and fails with status 1 outside an interactive,
+non-plain session or when no state path can be resolved. `respawn` reloads
+the file, `chdir`s to the checkpoint, restores the whitelisted variables as
+exported, and re-selects the persona if it still exists. It reports failures
+per item and never pretends: the success line says "restored shell state
+only ... processes were not resurrected". It never restores fds, jobs,
+terminal state, or child environments, and it does not change `$?` until its
+own status is recorded like any builtin.
+
+### D-0106 — `go-to-alice` and `exit` share one path, and ask in interactive sessions
+**2026-11-19 · accepted**
+
+Both builtins call `wl_exit_command()`. In an interactive, non-plain session
+the default is one `leave the world? [y/N]` question on `/dev/tty`, answered
+`y`/`Y` to leave; `WONDERLAND_CONFIRM_EXIT=0` disables it. `-c`, scripts,
+stdin and plain mode never prompt. A declined prompt returns status 1 without
+stopping the shell. The implementation follows D-0039 rather than changing
+it.
+
+### D-0107 — Death screen and mirror are opt-in, owned presentation
+**2026-11-19 · accepted**
+
+The death screen is a single stderr line, `[ the cycle continues without you
+]`, printed after a non-zero post-exec status only when
+`WONDERLAND_DEATH_SCREEN=1`, the session is interactive and non-plain, and
+the shell is still running. It runs after the narrative hook and never
+touches `last_status`. Mirror mode currently adds ` [mirror]` to the prompt
+when `WONDERLAND_MIRROR=1`; it never touches command output, pipes, scripts,
+or non-interactive sessions. Both mechanics are ordinary environment flags
+until a config file exists (D-0024), and both are default off so silence
+remains normal.
+
+### D-0108 — Black Rabbit reads job counters, not job internals
+**2026-11-19 · accepted**
+
+The job table gained `started` and `finished` counters and the printable
+`last_finished_command`. `wl_job_remove()` records a job only when its state
+is `WL_JOB_DONE`. The main loop compares its own seen-values after execution
+and before the next prompt, then emits `job_start`/`job_finish` through the
+same `wl_emit_narrative` gate as every other event. The jobs module therefore
+still does not depend on the narrative library, and plain/non-interactive
+sessions emit nothing. `job_start` is reported for background jobs only;
+foreground stopped jobs still print their ordinary `Stopped` line.
+
+### D-0109 — M7 evidence and version label
+**2026-11-19 · accepted**
+
+State tests cover round-trip fidelity (including a value with a newline),
+0600 permissions, in-place variable replacement, missing files, a tampered
+checksum, a wrong version, truncation, and `clear_rest`. The pty suite adds:
+`rest`/`cd /tmp`/`respawn`/`pwd` restoration; persona persistence across
+sessions; cycle 1 then 2; corrupt state with one note and a fresh cycle;
+mirror prompt marking; a death-screen line that leaves `$?` at 1; and two
+deterministic job sessions with a 100%-frequency test pack (job_start and
+job_finish separately). CLI checks cover `go-to-alice`, `rest`, `respawn` and
+`possess` in plain `-c` sessions, plus death-screen and mirror silence.
+
+`--version` now prints `wonderland 0.6.0 (M7; Alice's Library)`, superseding
+D-0096's string while keeping the milestone-label rule.
+
+Known M7 limits: no config file yet (`WONDERLAND_*` flags), no narrative
+recent/cooldown persistence, no per-line weights, no full-screen death
+presentation, and mirror mode is prompt-only. The four-week dogfooding gate
+is still human work and is not claimed.
