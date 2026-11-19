@@ -46,7 +46,7 @@ shell and never exposed to pack data.
 The brief's list is the long-term pool. Amendment 6 fixes the order: five
 maximally distinct voices first, prove them, then scale.
 
-### Wave 1 — the five (M3.5 / M6)
+### Wave 1 — the five (delivered in M6)
 
 | Persona | Class | Axes |
 |---------|-------|------|

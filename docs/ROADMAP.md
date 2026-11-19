@@ -224,14 +224,30 @@ packs, event system with the enum in `docs/PERSONAS.md`, selection with
 frequency/cooldowns/anti-repetition, `possess`, config keys, `--plain`
 plumbing end to end, the remaining four wave-1 personas (12–40 lines each).
 
-Exit criteria:
+Status: **done** (2026-11-19), with the documented M6 subset (D-0102).
 
-* A malformed pack yields one diagnostic line, the shell starts, other packs
-  load (fuzz the loader with truncated/mutated packs under ASan).
-* A pack claiming `canonical` without verification is rejected (test).
-* 30-minute scripted session produces 0–2 lines per minute, no repeats within
-  25 lines, no output on stdout, nothing at all in plain mode.
-* Blind attribution test on 20 lines per wave-1 persona ≥ 80% (human gate).
+Delivered: `src/content/pack.c` (parser + provenance validation + atomic
+rejection + directory scan + dedupe), `src/narrative/narrative.c` (default
+persona, effective success/fail mapping, frequency, per-kind cooldowns, global
+cooldown, 12/600 s budget, 25-line no-repeat ring, deterministic cursors,
+placeholder rendering), `possess`/`-l`, pack discovery through
+`WONDERLAND_PACKS` and the XDG data directory, `make install` of core packs,
+and five core personas: Alice 12 lines, Grimm 14, Nietzsche 13, Kafka 13,
+Cioran 13 — all original.
+
+Evidence: 93 unit cases (350 assertions) including loader provenance rules,
+here-documents, duplicate ids, directory order, a 400-input fuzz pass, engine
+cadence/cooldown/budget/possess/placeholder tests; 143 CLI checks; 14
+differential cases; pty sessions for plain editing, narrative speech +
+`possess` listing/switching, and `--plain` silence. ASan, valgrind and
+cppcheck clean with gcc and clang. `make install` verified from `/tmp` using
+the installed packs.
+
+Deviations: one persona per pack; only the eight emitted events are accepted
+(`pre_exec`, `idle`, `rest`, `respawn`, `cycle` arrive with M7); job events are
+selectable but not emitted yet; `content_license = unspecified` pending OQ-1.
+The 30-minute cadence and blind-attribution gate are human checks, still to be
+run; the engine and content are in place for them.
 
 ## M7 — Wonderland Identity
 
@@ -283,23 +299,20 @@ and `-c`/stdin handling in `src/main.c`, and tests at three levels (unit, CLI,
 pty). The `pty` test drives a real terminal, not a mock. (`m1_split.c` existed
 here and was deleted in M2.)
 
-## Recommended scope for the Milestone 6 prompt
+## Recommended scope for the Milestone 7 prompt
 
-> Implement M6 per `docs/CONTENT_FORMAT.md` and `docs/PERSONAS.md`:
-> (1) the content-pack parser and validator (INI-like sections, here-doc text,
-> status/category/provenance rules, atomic pack rejection, size limits);
-> (2) an immutable persona/line store with deterministic ordering, loaded from
-> `packs/examples/alice.pack` and `$WONDERLAND_PACKS`; (3) the persona engine
-> on top of the M3.5 ABI: event dispatch for the documented event list,
-> frequency, per-kind cooldowns, recent-line anti-repetition, session budget,
-> and silence; (4) `possess <name>` / `possess -l` and `--plain` end to end;
-> (5) the remaining four wave-1 personas with 12–40 original lines each;
-> (6) fuzz the loader (truncated/mutated packs) under ASan, and reject a
-> canonical pack without verification in a test; (7) update docs and report
-> limitations. Do not build Alice's Library, `rest`, mirror mode or
-> `go-to-alice` yet (M7).
+> Implement M7 per `docs/ROADMAP.md` and `docs/PERSONAS.md`: (1) Alice's
+> Library: a versioned, checksummed XDG state file with atomic writes, a
+> session cycle counter, corrupt-file recovery, and `cycle` as a narrative
+> event; (2) `rest`/`respawn` limited to cwd, whitelisted variables, active
+> persona and narrative state, with an explicit "not process resurrection"
+> message; (3) emit `job_start`/`job_finish` from the job table so the Black
+> Rabbit lines have a real source; (4) mirror mode restricted to
+> Wonderland-owned presentation; (5) `go-to-alice` sharing `exit` logic with
+> opt-out confirmation; (6) the death-screen presentation on failures,
+> suppressed by plain mode and never changing the status; (7) tests for state
+> corruption, round-trips, status invariance with mechanics on/off, and pty
+> coverage. Update docs and report limitations.
 
-After M6: M7 (Alice's Library, `rest`/`respawn`, Black Rabbit, mirror,
-`go-to-alice`), M8 (Bash extensions, `printf`/`local`/`kill` polish, install
-docs). The shell remains uninstalled in `/etc/shells` until the dogfooding
-gate is met.
+After M7: M8 (Bash extensions, remaining cast scaling, `printf`/`local`/
+`kill`, install polish), then the dogfooding gate before `/etc/shells`.

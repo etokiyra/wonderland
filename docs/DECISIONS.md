@@ -1134,3 +1134,105 @@ documented path keeps the shell beside the login shell.
 below 1.0 until the dogfooding gate in `docs/COMPATIBILITY.md` §9 is met, and
 the parenthetical names the milestone instead of implying a finished shell.
 It is a factual label, not a compatibility claim (D-0010).
+
+---
+
+## §15. Milestone 6 implementation decisions
+
+### D-0097 — The loader implements the format's honest subset
+**2026-11-19 · accepted**
+
+`src/content/pack.c` parses the documented INI-like format: sections, `key =
+value`, `text <<SENTINEL` here-documents, comments, and no escapes. It enforces
+the rules that make the content claims true: format 1 only, required
+provenance, `canonical` only with `status = verified` plus author/work/source/
+verifier, `quotation` with translation provenance, `original` without any
+provenance fields, no ESC/NUL, known placeholders, size limits, and atomic
+pack rejection. Unknown keys warn; unknown sections and formats fail the pack.
+
+M6 supports **one persona per pack** and line ids of the form
+`<persona>.<name>`; add-on packs for a persona in another pack are rejected.
+This keeps validation local and the loader small. It is a documented subset,
+not a format change.
+
+The loader accepts `verbosity`, `tags` and the reserved `lines` key so that
+packs written against `docs/CONTENT_FORMAT.md` do not warn, but M6 ignores
+them.
+
+### D-0098 — Selection: effective event, cooldowns, budget, no repeats
+**2026-11-19 · accepted**
+
+A `post_exec` event is mapped to `success` or `fail` for selection, priority
+and cooldowns. Failures, session start and exit bypass the frequency roll but
+still obey their per-kind cooldown; success/dir/job events are rolled against
+`frequency` (per mille) reduced by `silence_bias`. Per-kind cooldowns:
+fail 45 s, success/post_exec 20 s, dir 60 s, jobs 30 s, session/exit 0. A
+global 10 s cooldown applies to non-high-priority events. The session budget
+is 12 lines per 600 s. Candidates are cycled deterministically with a
+per-event cursor and a 25-entry no-repeat ring; the only randomness is the
+frequency roll (seeded xorshift). This makes tests exact and surprising output
+reproducible.
+
+### D-0099 — `possess`, pack discovery, and installation
+**2026-11-19 · accepted**
+
+`possess` prints the active display name, `possess -l` lists
+`id class lines`, and `possess NAME` switches by id or display name
+(case-insensitive), clearing cooldowns and the recent ring. With no packs it
+fails with status 1.
+
+Pack search order: `WONDERLAND_PACKS` (colon separated), the XDG data
+directory (`$XDG_DATA_HOME/wonderland/packs/core` and `.../packs`), then the
+development tree (`./packs/core`, `./packs`). The development tree is preferred
+when present so a checkout does not load the installed copy twice; files are
+deduplicated by `realpath` otherwise. `make install` copies `packs/core/*.pack`
+to `$(PREFIX)/share/wonderland/packs/core`, and `make uninstall` removes only
+those files.
+
+### D-0100 — Wave-1 cast: five voices, 65 original lines
+**2026-11-19 · accepted**
+
+`packs/core/` ships Alice (12), Grimm (14), Nietzsche (13), Kafka (13) and
+Cioran (13). All lines are original writing for Wonderland; `status =
+original`, `category = original`, and a per-pack `content_license =
+unspecified` because the content licence is still OQ-1/OQ-9. Voices are
+differentiated by register, sentence shape and subject matter, following
+`docs/PERSONAS.md`; future personas need the blind-attribution gate before
+joining the default set.
+
+### D-0101 — Placeholders are rendered by the narrative library
+**2026-11-19 · accepted**
+
+The loader validates that only `#{cwd_base}`, `#{cmd}`, `#{status}`,
+`#{cycle}` and `#{persona}` appear. `wl_narrative_render` substitutes them into
+a caller buffer (control characters become `?`), and the shell writes the
+result. Rendering stays in the narrative library because it is content
+formatting, not execution; it still performs no I/O and allocates nothing.
+
+### D-0102 — M6 limitations
+**2026-11-19 · accepted**
+
+* One persona per pack; no add-on packs, includes, or localisation.
+* Supported events are exactly the eight the shell can emit:
+  `post_exec`, `success`, `fail`, `session_start`, `dir_change`, `job_start`,
+  `job_finish`, `exit`. `pre_exec`, `idle`, `rest`, `respawn`, `cycle` and
+  the failure specialisations are rejected until M7 emits them.
+* `job_start`/`job_finish` are parsed and selectable but the shell does not
+  emit them yet; Black Rabbit wiring is M7.
+* No persistence of the active persona or selection state; `rest` is M7.
+* No weights per line, no per-event frequency overrides, no mood.
+* Pack diagnostics are line-numbered but not yet collected into one report.
+* `content_license = unspecified` means the core packs are not separately
+  redistributable until the licence decision is made.
+
+### D-0103 — Loader and engine evidence
+**2026-11-19 · accepted**
+
+Unit tests cover valid loading, the canonical/quotation/original rules, bad
+format/section, here-documents, placeholders, duplicate ids, directory order,
+missing paths, and a 400-input deterministic fuzz pass. Engine tests cover
+default selection, failure speaking, cooldowns, frequency, budget,
+anti-repetition, possess, exit, silence, and placeholder rendering. The pty
+suite runs a plain session for deterministic editing and a separate narrative
+session that asserts Alice speaks on `false`, `possess -l` lists all five and
+`possess grimm` switches voice; a third session proves `--plain` stays silent.

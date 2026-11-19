@@ -264,6 +264,22 @@ access to `struct wl_shell`, performs no I/O, and returns borrowed text; the
 shell's single `wl_emit_narrative` call is the only path from event to
 terminal.
 
+### 4.8 Implemented at M6
+
+| Step | File |
+|------|------|
+| pack parser, provenance validation, atomic rejection | `src/content/pack.c` |
+| persona/line data model (ABI) | `include/wonderland/narrative/persona.h` |
+| selection, cooldowns, budget, anti-repetition, rendering | `src/narrative/narrative.c` |
+| pack discovery, gating, event construction | `src/main.c` |
+| `possess`, `possess -l` | `src/builtins/builtins.c` |
+| core cast | `packs/core/*.pack` |
+| pack installation | `Makefile` (`$(PREFIX)/share/wonderland/packs`) |
+
+Content loading happens only for interactive, non-plain sessions; `plain` is
+resolved before any pack is read. The loader owns pack memory for the session
+and the narrative state only borrows it.
+
 ## 5. Core data model
 
 ```c

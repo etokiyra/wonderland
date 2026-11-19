@@ -1,7 +1,9 @@
 # Wonderland — Content Pack Format
 
-Status: proposal for Milestone 6. One example pack exists in
-`packs/examples/`; no loader exists yet.
+Status: implemented in Milestone 6 (`src/content/pack.c`). Core packs live in
+`packs/core/`; the example pack remains in `packs/examples/`. The notes marked
+"M6 subset" below record the parts of this specification that are accepted
+today (D-0097, D-0102).
 
 ## 1. Goals and non-goals
 
@@ -83,6 +85,9 @@ text = Something refused you. Do you know its name yet?
 Design rules that make the format hard to misuse:
 
 * `[pack]` appears exactly once and must be the first section.
+* **M6 subset:** one persona per pack. Line ids must be
+  `<persona>.<name>` and refer to that pack's persona. Add-on packs for
+  another pack's persona are rejected.
 * Personas and lines are separate sections so a line can be added without
   touching persona metadata, and a line can be moved between personas by
   editing one field.
@@ -111,7 +116,8 @@ Design rules that make the format hard to misuse:
 |-------|----------|---------|
 | `display_name` | yes | shown to the user |
 | `class` | yes | `main` \| `major` \| `secondary` \| `guest` |
-| `verbosity` | no | `low` \| `normal` \| `high` (default `normal`) |
+| `verbosity` | no | `low` \| `normal` \| `high` (default `normal`); accepted and currently ignored by the engine |
+| `default` | no | `true` for the persona that should be active at startup; Alice is the core default |
 | `frequency` | no | 0.0–1.0, default from class (see `docs/PERSONAS.md`) |
 | `silence_bias` | no | 0–100 |
 | `voice`, `worldview`, `description` | no | authoring notes, also usable by `possess` |
@@ -131,7 +137,7 @@ Design rules that make the format hard to misuse:
 | `translation` | conditional | required for `quotation` unless the quoted language is the original and `translation = none` is stated explicitly |
 | `verified_by`, `verified_on` | conditional | required when `status = verified`; who checked it and when |
 | `text` | yes | the line itself |
-| `tags` | no | comma-separated free tags for authoring (`slow`, `rare`, `cwd`) |
+| `tags` | no | comma-separated free tags for authoring (`slow`, `rare`, `cwd`); accepted and currently ignored |
 
 ## 5. Validation rules
 
@@ -140,7 +146,7 @@ Validation is a separate pass after parsing. The rules are normative:
 1. `format` must be exactly `1`. Unknown format ⇒ **fatal**, pack rejected.
 2. Unknown section name ⇒ **fatal** (catches typos like `[persone alice]`).
    Unknown key inside a known section ⇒ **warning**, key ignored.
-3. Unknown persona `class`, `verbosity`, `event`, `status` or `category` ⇒
+3. Unknown persona `class`, `event`, `status` or `category` ⇒
    **fatal** for the record; because a persona's lines are meaningless without
    the persona, a bad persona section rejects the pack.
 4. `category = canonical` **requires** `status = verified`, `work`, `source`,
@@ -237,6 +243,21 @@ for the "why did it say that" question.
 * Users may point `WONDERLAND_PACKS` at their own directories. A pack that
   quotes copyrighted translations is the user's responsibility; the loader
   records provenance precisely so that responsibility is auditable.
+
+## 9a. M6 subset and core packs
+
+* Supported event names are exactly the eight the shell emits today:
+  `post_exec`, `success`, `fail`, `session_start`, `dir_change`, `job_start`,
+  `job_finish`, `exit`. The other events in `docs/PERSONAS.md` are rejected
+  until M7 emits them.
+* One persona per pack (above); no includes, no localisation, no per-line
+  weights.
+* `packs/core/` ships Alice (12 lines), Grimm (14), Nietzsche (13), Kafka (13)
+  and Cioran (13), all `status = original` / `category = original`, with
+  `content_license = unspecified` until OQ-1/OQ-9 are decided.
+* `make install` copies core packs to
+  `$(PREFIX)/share/wonderland/packs/core`; discovery additionally honours
+  `WONDERLAND_PACKS` and the XDG data directory.
 
 ## 10. Open questions
 

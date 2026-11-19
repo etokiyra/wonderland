@@ -26,15 +26,16 @@ Repository docs are normative:
 | `docs/ROADMAP.md` | milestone order and exit criteria |
 | `docs/RISKS.md` | known failure modes and tripwires |
 
-Current status: Milestone 5 plus the M3.5 narrative slice (2026-11-19). The
-shell is usable for scripts and daily interactive work: expansion,
-redirections, pipelines, control flow, functions, positional parameters,
-traps, `set`, script files, job control, a raw-mode line editor, history and
-completion work; 14 differential cases agree with dash and bash. Alice speaks
-on stderr in interactive sessions and is silent under `--plain`. Missing: the
-pack loader and full persona engine (M6), M7 mechanics, Bash extensions,
-`local`, `exec`, `kill`/`disown`. It is not installed in `/etc/shells` and must
-not be until the dogfooding gate is met.
+Current status: Milestone 6 (2026-11-19). The shell is usable for scripts and
+daily interactive work; 14 differential cases agree with dash and bash. The
+narrative layer now loads content packs: five personas (Alice, Grimm,
+Nietzsche, Kafka, Cioran) with original lines, selection with frequency,
+cooldowns and budget, `possess`, and placeholder rendering. Plain mode loads no
+packs. Missing: M7 mechanics, the rest of the cast, Bash extensions, `local`,
+`exec`, `kill`/`disown`. It is not installed in `/etc/shells` and must not be
+until the dogfooding gate is met. Content packs are normative: see
+`docs/CONTENT_FORMAT.md` and `packs/core/`; never mark unverified text as
+canonical.
 
 ## 2. Non-negotiable safety rules
 
