@@ -202,12 +202,76 @@ status=$?
 expect "WONDERLAND_PLAIN=1 still executes commands" status_is 0
 expect "WONDERLAND_PLAIN=1 output" stdout_is_line env-hi
 
+# --- parsing (M2) ---------------------------------------------------------
+
+run -c 'printf "[%s]\n" "a b"'
+expect "quoted space is one argument" stdout_is_line '[a b]'
+
+run -c "printf '[%s]\n' 'a  b'"
+expect "single quotes preserve spacing" stdout_is_line '[a  b]'
+
+run -c 'printf "[%s]\n" ""'
+expect "empty quoted argument survives" stdout_is_line '[]'
+
+run -c 'printf "[%s]\n" a\ b'
+expect "escaped space is one argument" stdout_is_line '[a b]'
+
+run -c 'echo one; echo two'
+expect "semicolon separates commands" stdout_is_text 'one\ntwo\n'
+
+run -c 'false && echo no; echo yes'
+expect "&& short-circuits" stdout_is_line yes
+
+run -c 'true || echo no'
+expect "|| short-circuits" status_is 0
+expect "|| produces no output" stdout_empty
+
+run -c '! true'
+expect "! inverts success" status_is 1
+
+run -c '! false'
+expect "! inverts failure" status_is 0
+
+run -c 'cd /tmp; pwd'
+expect "builtins work inside a list" stdout_is_line /tmp
+
+run -c 'echo if then fi'
+expect "reserved words are ordinary arguments" stdout_is_line 'if then fi'
+
+run -c 'echo hi # comment'
+expect "comments are ignored" stdout_is_line hi
+
+continued='echo ab\
+cd'
+run -c "$continued"
+expect "backslash-newline continues a command" stdout_is_line abcd
+
+run -c 'echo $HOME'
+expect "expansion is refused in M2" status_is 2
+expect "expansion refusal explains itself" stderr_has "expansion"
+
+run -c "echo hi > $tmp/outfile"
+expect "redirection is refused in M2" status_is 2
+expect "redirection refusal explains itself" stderr_has "redirection"
+
+run -c 'echo hi | cat'
+expect "pipeline is refused in M2" status_is 2
+expect "pipeline refusal explains itself" stderr_has "pipeline"
+
+run -c 'if true; then echo y; fi'
+expect "compound command is refused in M2" status_is 2
+
+run -c 'echo "unterminated'
+expect "unterminated quote is a syntax error" status_is 2
+expect "unterminated quote names the problem" stderr_has "unterminated"
+
 # --- limits ---------------------------------------------------------------
 
-long_command=$(awk 'BEGIN { for (i = 0; i < 5000; i++) printf "a" }')
-run -c "$long_command"
-expect "over-long command line is refused" status_is 2
-expect "over-long command line explains itself" stderr_has "too long"
+awk 'BEGIN { for (i = 0; i < 1100000; i++) printf "a"; printf "\n" }' |
+    "$BIN" >"$tmp/out" 2>"$tmp/err"
+status=$?
+expect "over-large stdin is refused" status_is 2
+expect "over-large stdin explains itself" stderr_has "too large"
 
 many_words=$(awk 'BEGIN { for (i = 0; i < 300; i++) printf "w "; }')
 run -c "$many_words"

@@ -197,6 +197,36 @@ int main(int argc, char **argv) {
         wl_fail("echo did not run");
     }
 
+    /* A trailing backslash continues the logical line (M2 continuation). */
+    if (!wl_send("echo ab\\\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (!wl_wait_for("> ", 2000)) {
+        wl_fail("no continuation prompt for a trailing backslash");
+    }
+    if (!wl_send("cd\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after the continued command") &&
+        !wl_wait_for("abcd\r\n", 2000)) {
+        wl_fail("continuation did not complete the command");
+    }
+
+    /* An open single quote also continues. */
+    if (!wl_send("echo 'x\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (!wl_wait_for("> ", 2000)) {
+        wl_fail("no continuation prompt for an open quote");
+    }
+    if (!wl_send("y'\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after the quoted continuation") &&
+        !wl_wait_for("x\r\ny\r\n", 2000)) {
+        wl_fail("quoted continuation did not preserve the newline");
+    }
+
     if (!wl_send("cd /tmp\n")) {
         wl_fail("could not write to the terminal");
     }

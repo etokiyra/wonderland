@@ -11,6 +11,7 @@
  */
 
 #define WL_LINE_MAX 4096
+#define WL_SOURCE_MAX (1024 * 1024)
 #define WL_ARGV_MAX 256
 #define WL_PATH_MAX 4096
 

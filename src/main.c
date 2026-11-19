@@ -4,6 +4,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "ast/arena.h"
+#include "ast/ast.h"
+#include "core/buf.h"
+#include "core/diag.h"
 #include "core/exit_code.h"
 #include "core/limits.h"
 #include "core/opts.h"
@@ -12,124 +16,216 @@
 #include "exec/exec.h"
 #include "jobs/signal.h"
 #include "line/read.h"
+#include "parse/parse.h"
 #include "term/prompt.h"
 #include "term/term.h"
 
 /*
- * Milestone 1 entry point: option handling, the read/execute loop, and the
- * terminal handoff around it. The loop lives here because main() is the only
- * component allowed to depend on everything (docs/ARCHITECTURE.md §3).
+ * Entry point and read/parse/execute loop.
  *
- * Deliberately absent at this milestone: pipelines, redirections, quoting,
- * expansion, job control, history, the line editor, and the narrative layer.
+ * Three input paths: -c STRING (one complete unit), stdin (read whole, one
+ * unit), interactive (one logical line at a time, with a continuation prompt
+ * while the parser reports `incomplete`). All parsing goes through
+ * wl_parse_source; execution goes through wl_exec_program.
  */
 
-static void wl_strip_eol(char *line) {
-    size_t length = strlen(line);
+static bool wl_run_source(struct wl_shell *shell, struct wl_arena *arena,
+                          const char *source, size_t length,
+                          const char *name) {
+    struct wl_diag diag;
+    struct wl_node *program;
 
-    while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r')) {
-        line[--length] = '\0';
+    wl_diag_clear(&diag);
+    program = wl_parse_source(source, length, name, arena, &diag);
+    if (program == NULL) {
+        if (diag.set) {
+            wl_diag_print(&diag, source, length, name, stderr);
+        } else {
+            fprintf(stderr,
+                    "wonderland: internal error: parse failed without a "
+                    "diagnostic\n");
+        }
+        wl_shell_set_status(shell, 2);
+        return false;
     }
+    return wl_exec_program(shell, program);
 }
 
 /*
- * -c STRING: every newline-separated line is executed in order, stopping when
- * the shell stops. There is no `;` handling yet; that is the parser's job and
- * the parser does not exist (docs/ROADMAP.md M2).
+ * A trailing backslash escapes the newline, so the shell must read the next
+ * line before tokenizing. The parser cannot see this: by the time it has
+ * removed the escape, the command looks complete.
  */
-static void wl_run_string(struct wl_shell *sh, const char *command) {
-    char buffer[WL_LINE_MAX];
-    const char *cursor = command;
+static bool wl_line_continues(const char *text, size_t length) {
+    size_t backslashes = 0;
+    size_t at = length;
 
-    while (*cursor != '\0' && sh->running) {
-        const char *newline = strchr(cursor, '\n');
-        size_t length = (newline != NULL) ? (size_t)(newline - cursor)
-                                          : strlen(cursor);
-
-        if (length >= sizeof buffer) {
-            fprintf(stderr, "wonderland: command line too long (max %d bytes)\n",
-                    WL_LINE_MAX - 1);
-            wl_shell_set_status(sh, 2);
-        } else {
-            memcpy(buffer, cursor, length);
-            buffer[length] = '\0';
-            wl_strip_eol(buffer);
-            if (buffer[0] != '\0') {
-                (void)wl_exec_line(sh, buffer);
-            }
-        }
-
-        if (newline == NULL) {
-            break;
-        }
-        cursor = newline + 1;
+    if (at == 0 || text[at - 1] != '\n') {
+        return false;
     }
+    at--;
+    while (at > 0 && text[at - 1] == '\\') {
+        backslashes++;
+        at--;
+    }
+    return (backslashes % 2) == 1;
 }
 
-static void wl_run_interactive(struct wl_shell *sh) {
+static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena) {
     char line[WL_LINE_MAX];
+    size_t used = 0;
+    bool continuing = false;
 
     for (;;) {
         char prompt[256];
         char cwd[WL_PATH_MAX];
-        size_t length = 0;
         enum wl_line_status read_status;
+        size_t length = 0;
 
         if (getcwd(cwd, sizeof cwd) == NULL) {
             (void)snprintf(cwd, sizeof cwd, "?");
         }
-        (void)wl_prompt_format(prompt, sizeof prompt, sh->last_status, cwd,
-                               getenv("HOME"));
-        fputs(prompt, stderr);
+        if (continuing) {
+            fputs("> ", stderr);
+        } else {
+            (void)wl_prompt_format(prompt, sizeof prompt, shell->last_status,
+                                   cwd, getenv("HOME"));
+            fputs(prompt, stderr);
+        }
         fflush(stderr);
 
-        read_status = wl_line_read(sh->tty_fd, line, sizeof line, &length);
+        if (used >= sizeof line) {
+            fprintf(stderr, "wonderland: line too long (max %d bytes)\n",
+                    WL_LINE_MAX - 1);
+            wl_shell_set_status(shell, 2);
+            used = 0;
+            continuing = false;
+            wl_arena_reset(arena);
+            continue;
+        }
+
+        read_status = wl_line_read(shell->tty_fd, line + used,
+                                   sizeof line - used, &length);
         if (read_status == WL_LINE_INTERRUPTED) {
             fputc('\n', stderr);
             fflush(stderr);
+            used = 0;
+            continuing = false;
+            wl_arena_reset(arena);
             continue;
         }
         if (read_status == WL_LINE_EOF) {
             fputc('\n', stderr);
             fflush(stderr);
+            if (used > 0) {
+                fprintf(stderr,
+                        "wonderland: <stdin>: syntax error: unexpected end of "
+                        "file\n");
+                wl_shell_set_status(shell, 2);
+            }
             break;
         }
         if (read_status == WL_LINE_TOO_LONG) {
             fprintf(stderr, "wonderland: line too long (max %d bytes)\n",
                     WL_LINE_MAX - 1);
-            wl_shell_set_status(sh, 2);
+            wl_shell_set_status(shell, 2);
+            used = 0;
+            continuing = false;
+            wl_arena_reset(arena);
             continue;
         }
         if (read_status == WL_LINE_ERROR) {
             fprintf(stderr, "wonderland: read: %s\n", strerror(errno));
-            wl_shell_set_status(sh, 1);
+            wl_shell_set_status(shell, 1);
             break;
         }
 
-        wl_strip_eol(line);
-        if (line[0] != '\0') {
-            (void)wl_exec_line(sh, line);
+        /* Keep the newline: here-document bodies and line structure need it. */
+        if (used + length + 2 > sizeof line) {
+            fprintf(stderr, "wonderland: line too long (max %d bytes)\n",
+                    WL_LINE_MAX - 1);
+            wl_shell_set_status(shell, 2);
+            used = 0;
+            continuing = false;
+            wl_arena_reset(arena);
+            continue;
         }
-        if (!sh->running) {
-            break;
+        line[used + length] = '\n';
+        used += length + 1;
+        line[used] = '\0';
+
+        if (wl_line_continues(line, used)) {
+            continuing = true;
+            continue;
+        }
+
+        {
+            struct wl_diag diag;
+            struct wl_node *program;
+
+            wl_diag_clear(&diag);
+            program = wl_parse_source(line, used, "<stdin>", arena, &diag);
+            if (program == NULL) {
+                if (diag.incomplete) {
+                    wl_arena_reset(arena);
+                    continuing = true;
+                    continue;
+                }
+                wl_diag_print(&diag, line, used, "<stdin>", stderr);
+                wl_shell_set_status(shell, 2);
+                used = 0;
+                continuing = false;
+                wl_arena_reset(arena);
+                continue;
+            }
+
+            (void)wl_exec_program(shell, program);
+            wl_arena_reset(arena);
+            used = 0;
+            continuing = false;
+            if (!shell->running) {
+                break;
+            }
         }
     }
 }
 
-/* Non-interactive stdin: a pipe, a here-doc, or `-` on a terminal. */
-static void wl_run_stream(struct wl_shell *sh, FILE *input) {
-    char *line = NULL;
-    size_t capacity = 0;
-    ssize_t count;
+static bool wl_read_all(FILE *input, struct wl_buf *source) {
+    char chunk[4096];
+    size_t count;
 
-    while ((count = getline(&line, &capacity, input)) != -1 && sh->running) {
-        (void)count;
-        wl_strip_eol(line);
-        if (line[0] != '\0') {
-            (void)wl_exec_line(sh, line);
+    while ((count = fread(chunk, 1, sizeof chunk, input)) > 0) {
+        if (source->len + count > WL_SOURCE_MAX) {
+            fprintf(stderr, "wonderland: input is too large (max %d bytes)\n",
+                    WL_SOURCE_MAX);
+            return false;
+        }
+        if (!wl_buf_append(source, chunk, count)) {
+            fprintf(stderr, "wonderland: out of memory\n");
+            return false;
         }
     }
-    free(line);
+    if (ferror(input)) {
+        fprintf(stderr, "wonderland: read: %s\n", strerror(errno));
+        return false;
+    }
+    return true;
+}
+
+static void wl_run_stream(struct wl_shell *shell, struct wl_arena *arena,
+                          FILE *input) {
+    struct wl_buf source;
+
+    wl_buf_init(&source);
+    if (wl_read_all(input, &source)) {
+        (void)wl_run_source(shell, arena,
+                            (source.data != NULL) ? source.data : "",
+                            source.len, "<stdin>");
+        wl_arena_reset(arena);
+    } else {
+        wl_shell_set_status(shell, 2);
+    }
+    wl_buf_free(&source);
 }
 
 int main(int argc, char **argv) {
@@ -137,6 +233,7 @@ int main(int argc, char **argv) {
     enum wl_opt_action action = wl_opts_parse(argc, argv, &opts);
     struct wl_shell shell;
     struct wl_term term;
+    struct wl_arena arena;
     bool interactive;
 
     if (action == WL_OPT_USAGE_ERROR) {
@@ -165,6 +262,7 @@ int main(int argc, char **argv) {
                   isatty(STDIN_FILENO) && isatty(STDERR_FILENO);
 
     wl_shell_init(&shell, opts.plain, interactive);
+    wl_arena_init(&arena);
 
     term.fd = -1;
     term.saved = false;
@@ -174,13 +272,21 @@ int main(int argc, char **argv) {
     }
 
     if (action == WL_OPT_COMMAND) {
-        wl_run_string(&shell, opts.command);
+        if (strlen(opts.command) > WL_SOURCE_MAX) {
+            fprintf(stderr, "wonderland: -c input is too large (max %d bytes)\n",
+                    WL_SOURCE_MAX);
+            return WL_EXIT_USAGE;
+        }
+        (void)wl_run_source(&shell, &arena, opts.command,
+                            strlen(opts.command), "-c");
+        wl_arena_reset(&arena);
     } else if (interactive) {
-        wl_run_interactive(&shell);
+        wl_run_interactive(&shell, &arena);
     } else {
-        wl_run_stream(&shell, stdin);
+        wl_run_stream(&shell, &arena, stdin);
     }
 
+    wl_arena_reset(&arena);
     if (interactive) {
         wl_term_restore(&term);
     }
