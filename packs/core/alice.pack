@@ -1,0 +1,106 @@
+# Core content pack: Alice.
+#
+# Every line is ORIGINAL writing for Wonderland. No Black Souls dialogue and
+# no quotation from any real person. content_license is unspecified until the
+# project's content licence is decided (docs/DECISIONS.md OQ-1/OQ-9).
+
+[pack]
+id = wonderland.core.alice
+format = 1
+name = Alice
+content_license = unspecified
+description = The first voice: curious, polite, and unsettled by house rules she cannot see.
+
+[persona alice]
+display_name = Alice
+class = main
+default = true
+frequency = 0.12
+silence_bias = 10
+voice = curious, literal, polite; asks rather than declares; short sentences
+worldview = A place has house rules. She would very much like to know them.
+speaks_on = success, fail, session_start, dir_change, exit
+
+[line alice.success.1]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = It held. The room pretends not to notice.
+
+[line alice.success.2]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = One more turn of the key. Nothing followed you in.
+
+[line alice.success.3]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = That worked. Try not to look relieved; the walls watch.
+
+[line alice.success.4]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = You are learning the house rules faster than I did.
+
+[line alice.fail.1]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = Something refused you. Ask it again more politely.
+
+[line alice.fail.2]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = Not that way. The house is particular about doors.
+
+[line alice.fail.3]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = It broke? Or did it simply disagree with you?
+
+[line alice.fail.4]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = That sound means no. I would not push it twice.
+
+[line alice.session.1]
+event = session_start
+status = original
+category = original
+author = Wonderland contributors
+text = You came back. I kept the light on. Not for you, particularly.
+
+[line alice.dir.1]
+event = dir_change
+status = original
+category = original
+author = Wonderland contributors
+text = New room. The rules will be different, probably.
+
+[line alice.exit.1]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = Leaving again. The door remembers you.
+
+[line alice.exit.2]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = Mind the step. There is always a step.

@@ -1,0 +1,108 @@
+# Core content pack: Cioran. All lines original (see alice.pack header).
+
+[pack]
+id = wonderland.core.cioran
+format = 1
+name = Cioran
+content_license = unspecified
+description = Exhausted lucidity: short declaratives, dry self-mockery, no consolation.
+
+[persona cioran]
+display_name = Cioran
+class = major
+frequency = 0.08
+silence_bias = 15
+voice = short, terminal sentences; dry wit about exhaustion; refuses hope without drama
+worldview = Everything passes, including the reasons for continuing. One continues anyway, out of inertia.
+speaks_on = success, fail, session_start, dir_change, exit, job_start, job_finish
+
+[line cioran.success.1]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = It worked. That is usually the beginning of the trouble.
+
+[line cioran.success.2]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = A success. Something to regret later.
+
+[line cioran.success.3]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = Fine. The machine is amused.
+
+[line cioran.fail.1]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = It failed. How reassuringly consistent.
+
+[line cioran.fail.2]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = You asked the void for a favour. The void declined.
+
+[line cioran.fail.3]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = Another error. The universe is not keeping score; that is the insult.
+
+[line cioran.fail.4]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = It did not work. Nothing does, for long.
+
+[line cioran.session.1]
+event = session_start
+status = original
+category = original
+author = Wonderland contributors
+text = You are back. I had almost stopped expecting anything.
+
+[line cioran.dir.1]
+event = dir_change
+status = original
+category = original
+author = Wonderland contributors
+text = A new place. Same exhaustion, better furniture.
+
+[line cioran.exit.1]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = Leave. The world will continue being itself.
+
+[line cioran.exit.2]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = Goodbye. I would say "until tomorrow", but let us not lie.
+
+[line cioran.job.1]
+event = job_start
+status = original
+category = original
+author = Wonderland contributors
+text = Something else is running. Let it tire itself.
+
+[line cioran.job.2]
+event = job_finish
+status = original
+category = original
+author = Wonderland contributors
+text = It is over. They all are, eventually.

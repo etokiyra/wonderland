@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "ast/arena.h"
@@ -13,6 +14,7 @@
 #include "core/limits.h"
 #include "core/opts.h"
 #include "core/shell.h"
+#include "content/pack.h"
 #include "core/version.h"
 #include "exec/exec.h"
 #include "jobs/job.h"
@@ -38,18 +40,22 @@
 /*
  * The narrative hook.
  *
- * Runs only for an interactive, non-plain session with a live shell. The event
- * is immutable data; the persona returns borrowed text; the shell writes it to
- * stderr and flushes before the prompt. stdout is never touched.
+ * Runs only for an interactive, non-plain session. The event is immutable
+ * data; the persona returns borrowed text; the shell writes it to stderr and
+ * flushes before the prompt. stdout is never touched.
  */
-static void wl_emit_narrative(struct wl_shell *shell, const char *cmdline,
+static void wl_emit_narrative(struct wl_shell *shell, enum wl_event_kind kind,
+                              int status, const char *cmdline,
                               const char *cwd) {
     struct wl_event event;
     struct wl_line output;
     char sanitized[200];
     size_t at = 0;
 
-    if (!shell->interactive || shell->plain || !shell->running) {
+    if (!shell->interactive || shell->plain) {
+        return;
+    }
+    if (kind != WL_EV_EXIT && !shell->running) {
         return;
     }
     if (cmdline != NULL) {
@@ -63,17 +69,95 @@ static void wl_emit_narrative(struct wl_shell *shell, const char *cmdline,
     sanitized[at] = '\0';
 
     memset(&event, 0, sizeof event);
-    event.kind = WL_EV_POST_EXEC;
-    event.status = shell->last_status;
+    event.kind = kind;
+    event.status = status;
+    event.now = time(NULL);
     event.cmdline = sanitized;
     event.argv0 = sanitized;
     event.cwd = cwd;
 
     if (wl_narrative_react(&shell->narrative, &event, &output) &&
         output.len > 0) {
-        fwrite(output.text, 1, output.len, stderr);
+        char rendered[1024];
+        size_t length = wl_narrative_render(
+            output.text, &event, wl_narrative_persona(&shell->narrative),
+            rendered, sizeof rendered);
+
+        fwrite(rendered, 1, length, stderr);
         fputc('\n', stderr);
         fflush(stderr);
+    }
+}
+
+/*
+ * Pack search order: WONDERLAND_PACKS (colon separated), the XDG data
+ * directory (where `make install` puts core packs), and the development tree.
+ * Missing paths are skipped by the loader.
+ */
+static struct wl_packset *wl_load_packs(void) {
+    const char *env = getenv("WONDERLAND_PACKS");
+    const char *xdg = getenv("XDG_DATA_HOME");
+    const char *home = getenv("HOME");
+    const char *paths[12];
+    char storage[8][512];
+    size_t count = 0;
+    size_t stored = 0;
+    char *env_copy = NULL;
+
+    if (env != NULL && env[0] != '\0') {
+        char *cursor;
+        char *save = NULL;
+
+        env_copy = strdup(env);
+        cursor = (env_copy != NULL) ? strtok_r(env_copy, ":", &save) : NULL;
+        while (cursor != NULL && count < 6) {
+            paths[count++] = cursor;
+            cursor = strtok_r(NULL, ":", &save);
+        }
+    }
+
+    /*
+     * Prefer the development tree when it is present; otherwise use the
+     * installed XDG location. Adding both would load the same persona twice
+     * and (correctly) trip duplicate-id validation.
+     */
+    {
+        struct stat info;
+
+        if (stat("packs/core", &info) != 0 || !S_ISDIR(info.st_mode)) {
+            if (xdg != NULL && xdg[0] != '\0') {
+                (void)snprintf(storage[stored], sizeof storage[stored],
+                               "%s/wonderland/packs/core", xdg);
+                paths[count++] = storage[stored++];
+                (void)snprintf(storage[stored], sizeof storage[stored],
+                               "%s/wonderland/packs", xdg);
+                paths[count++] = storage[stored++];
+            } else if (home != NULL && home[0] != '\0') {
+                (void)snprintf(storage[stored], sizeof storage[stored],
+                               "%s/.local/share/wonderland/packs/core", home);
+                paths[count++] = storage[stored++];
+                (void)snprintf(storage[stored], sizeof storage[stored],
+                               "%s/.local/share/wonderland/packs", home);
+                paths[count++] = storage[stored++];
+            }
+        }
+    }
+
+    if (count < sizeof paths / sizeof paths[0]) {
+        (void)snprintf(storage[stored], sizeof storage[stored],
+                       "%s", "packs/core");
+        paths[count++] = storage[stored++];
+    }
+    if (count < sizeof paths / sizeof paths[0]) {
+        (void)snprintf(storage[stored], sizeof storage[stored], "%s", "packs");
+        paths[count++] = storage[stored++];
+    }
+
+    {
+        struct wl_packset *packs = wl_packset_load(paths, count);
+
+        free(env_copy);
+        return packs;
     }
 }
 
@@ -129,8 +213,14 @@ static bool wl_line_continues(const char *text, size_t length) {
 static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
                                struct wl_editor *editor) {
     char line[WL_LINE_MAX];
+    char previous_cwd[WL_PATH_MAX];
+    bool have_previous_cwd = false;
     size_t used = 0;
     bool continuing = false;
+
+    if (getcwd(previous_cwd, sizeof previous_cwd) != NULL) {
+        have_previous_cwd = true;
+    }
 
     for (;;) {
         char prompt[256];
@@ -245,7 +335,22 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
             (void)wl_exec_program(shell, program);
             shell->source = NULL;
             shell->source_length = 0;
-            wl_emit_narrative(shell, line, cwd);
+            wl_emit_narrative(shell, WL_EV_POST_EXEC, shell->last_status, line,
+                              cwd);
+            {
+                char after[WL_PATH_MAX];
+
+                if (getcwd(after, sizeof after) != NULL) {
+                    if (have_previous_cwd &&
+                        strcmp(after, previous_cwd) != 0) {
+                        wl_emit_narrative(shell, WL_EV_DIR_CHANGE,
+                                          shell->last_status, line, after);
+                    }
+                    (void)snprintf(previous_cwd, sizeof previous_cwd, "%s",
+                                   after);
+                    have_previous_cwd = true;
+                }
+            }
             wl_arena_reset(arena);
             used = 0;
             continuing = false;
@@ -342,6 +447,7 @@ int main(int argc, char **argv) {
     struct wl_term term;
     struct wl_arena arena;
     struct wl_editor editor;
+    struct wl_packset *packs = NULL;
     struct wl_history *history = NULL;
     char *history_path = NULL;
     bool have_editor = false;
@@ -390,6 +496,18 @@ int main(int argc, char **argv) {
             return 1;
         }
         have_editor = true;
+
+        if (!shell.plain) {
+            char cwd[WL_PATH_MAX];
+
+            packs = wl_load_packs();
+            wl_narrative_attach(&shell.narrative, packs);
+            if (getcwd(cwd, sizeof cwd) != NULL) {
+                wl_emit_narrative(&shell, WL_EV_SESSION_START, 0, NULL, cwd);
+            }
+        } else {
+            wl_narrative_attach(&shell.narrative, NULL);
+        }
     }
 
     if (action == WL_OPT_COMMAND) {
@@ -423,6 +541,13 @@ int main(int argc, char **argv) {
     }
 
     wl_exec_run_exit_trap(&shell);
+    if (interactive && !shell.plain) {
+        char cwd[WL_PATH_MAX];
+
+        if (getcwd(cwd, sizeof cwd) != NULL) {
+            wl_emit_narrative(&shell, WL_EV_EXIT, shell.last_status, NULL, cwd);
+        }
+    }
     wl_arena_reset(&arena);
     if (have_editor) {
         wl_editor_free(&editor);
@@ -442,6 +567,7 @@ int main(int argc, char **argv) {
 
         wl_exec_shutdown(&shell);
         wl_shell_destroy(&shell);
+        wl_packset_free(packs);
         return status;
     }
 }

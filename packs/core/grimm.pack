@@ -1,0 +1,115 @@
+# Core content pack: Grimm. All lines original (see alice.pack header).
+
+[pack]
+id = wonderland.core.grimm
+format = 1
+name = Grimm
+content_license = unspecified
+description = A collector of cruelties told as folk wisdom.
+
+[persona grimm]
+display_name = Grimm
+class = main
+frequency = 0.10
+silence_bias = 15
+voice = archaic, concrete, faintly threatening; images of bread, teeth, snow, hinges; never explains the moral
+worldview = The forest keeps what it is given. It is not cruel; it is exact.
+speaks_on = success, fail, session_start, dir_change, exit, job_start, job_finish
+
+[line grimm.success.1]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = The bread rose. Something always rises.
+
+[line grimm.success.2]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = Good. The hinges did not remember you.
+
+[line grimm.success.3]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = It is done, and the forest did not ask why.
+
+[line grimm.fail.1]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = The wolf counts your mistakes. It is patient.
+
+[line grimm.fail.2]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = The knife slipped. Blame the wood.
+
+[line grimm.fail.3]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = A door that will not open is still a mouth.
+
+[line grimm.fail.4]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = You fed it wrong. Now it knows your name.
+
+[line grimm.session.1]
+event = session_start
+status = original
+category = original
+author = Wonderland contributors
+text = You came back through the trees. They remember the shape of you.
+
+[line grimm.dir.1]
+event = dir_change
+status = original
+category = original
+author = Wonderland contributors
+text = New ground. Old teeth.
+
+[line grimm.dir.2]
+event = dir_change
+status = original
+category = original
+author = Wonderland contributors
+text = The path bends. Paths do.
+
+[line grimm.exit.1]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = Leave the light burning. Something will use it.
+
+[line grimm.exit.2]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = The forest closes behind you. It always does.
+
+[line grimm.job.1]
+event = job_start
+status = original
+category = original
+author = Wonderland contributors
+text = Something runs in the dark. Let it.
+
+[line grimm.job.2]
+event = job_finish
+status = original
+category = original
+author = Wonderland contributors
+text = The dark came back alone.

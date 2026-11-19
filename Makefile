@@ -54,6 +54,7 @@ DEPS := $(SHELL_OBJS:.o=.d) $(NARRATIVE_OBJS:.o=.d) \
 # (amendment 4). Override with PREFIX=/usr/local when packaging.
 PREFIX  ?= $(HOME)/.local
 BINDIR  := $(PREFIX)/bin
+PACKSDIR := $(PREFIX)/share/wonderland/packs
 DESTDIR ?=
 
 all: $(BIN)
@@ -142,10 +143,16 @@ clean:
 install: all
 	@mkdir -p "$(DESTDIR)$(BINDIR)"
 	install -m 0755 "$(BIN)" "$(DESTDIR)$(BINDIR)/wonderland"
+	@mkdir -p "$(DESTDIR)$(PACKSDIR)/core"
+	install -m 0644 packs/core/*.pack "$(DESTDIR)$(PACKSDIR)/core/"
 	@printf 'installed %s\n' "$(DESTDIR)$(BINDIR)/wonderland"
+	@printf 'installed core packs in %s\n' "$(DESTDIR)$(PACKSDIR)/core"
 	@printf 'make sure %s is on PATH; it is a normal shell command, not a login shell\n' "$(BINDIR)"
 
 uninstall:
 	rm -f "$(DESTDIR)$(BINDIR)/wonderland"
+	@for f in packs/core/*.pack; do \
+	    [ -f "$$f" ] && rm -f "$(DESTDIR)$(PACKSDIR)/core/$$(basename "$$f")"; \
+	done
 
 -include $(DEPS)

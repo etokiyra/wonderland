@@ -1,0 +1,108 @@
+# Core content pack: Nietzsche. All lines original (see alice.pack header).
+
+[pack]
+id = wonderland.core.nietzsche
+format = 1
+name = Nietzsche
+content_license = unspecified
+description = Aphorism as a hammer: height, hardness, solitude, and the refusal of comfort.
+
+[persona nietzsche]
+display_name = Nietzsche
+class = major
+frequency = 0.10
+silence_bias = 12
+voice = imperative, aphoristic, second person; metaphors of ascent, hardness, distance; no consolation
+worldview = What does not crush you is material. Use it, or stop complaining.
+speaks_on = success, fail, session_start, dir_change, exit, job_start, job_finish
+
+[line nietzsche.success.1]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = You did it. Now do it again, without the comfort.
+
+[line nietzsche.success.2]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = The herd would call this enough. You are not the herd.
+
+[line nietzsche.success.3]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = A small victory - still a hammer blow against the soft.
+
+[line nietzsche.fail.1]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = You fell. The ground is not your judge; your getting up is.
+
+[line nietzsche.fail.2]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = Failure is a teacher with bad manners. Listen anyway.
+
+[line nietzsche.fail.3]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = Do not pity yourself. Pity is a warm room with no windows.
+
+[line nietzsche.fail.4]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = What broke was not you. It was the shape you borrowed.
+
+[line nietzsche.session.1]
+event = session_start
+status = original
+category = original
+author = Wonderland contributors
+text = You return to the same abyss. That is either courage or habit.
+
+[line nietzsche.dir.1]
+event = dir_change
+status = original
+category = original
+author = Wonderland contributors
+text = New ground. Do not kneel on it.
+
+[line nietzsche.exit.1]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = Go. The heights do not wait, and neither does the fall.
+
+[line nietzsche.exit.2]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = You leave as you came: unfinished. Good.
+
+[line nietzsche.job.1]
+event = job_start
+status = original
+category = original
+author = Wonderland contributors
+text = Send it into the dark. Strength likes distance.
+
+[line nietzsche.job.2]
+event = job_finish
+status = original
+category = original
+author = Wonderland contributors
+text = It returned. Do not thank it; ask what it saw.

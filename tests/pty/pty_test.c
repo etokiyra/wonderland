@@ -168,6 +168,86 @@ static void wl_disable_echo(void) {
 }
 
 /*
+ * A short non-plain session: the narrative slice must speak on a failure and
+ * `possess` must see the core cast.
+ */
+static void wl_narrative_session(const char *binary) {
+    pid_t child;
+    int status = 0;
+    int prompts;
+    int waited;
+
+    wl_master = -1;
+    wl_output_len = 0;
+    wl_output[0] = '\0';
+
+    child = forkpty(&wl_master, NULL, NULL, NULL);
+    if (child < 0) {
+        wl_fail("narrative: forkpty failed");
+        return;
+    }
+    if (child == 0) {
+        execl(binary, binary, (char *)NULL);
+        _exit(127);
+    }
+
+    wl_disable_echo();
+    if (!wl_wait_for("wonderland:", 5000)) {
+        wl_fail("narrative: prompt did not appear");
+    }
+    prompts = wl_count_of("\r\n\rwonderland:");
+
+    if (!wl_send("false\n")) {
+        wl_fail("narrative: could not write");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("narrative: no prompt after false");
+    }
+    if (strstr(wl_output, "Something refused you") == NULL) {
+        wl_fail("narrative: Alice did not speak on failure");
+    }
+
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("possess -l\n")) {
+        wl_fail("narrative: could not write possess -l");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("narrative: no prompt after possess -l");
+    }
+    if (strstr(wl_output, "grimm") == NULL ||
+        strstr(wl_output, "nietzsche") == NULL ||
+        strstr(wl_output, "cioran") == NULL) {
+        wl_fail("narrative: possess -l did not list the core cast");
+    }
+
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("possess grimm\n")) {
+        wl_fail("narrative: could not write possess grimm");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("narrative: no prompt after possess grimm");
+    }
+    if (strstr(wl_output, "Grimm") == NULL) {
+        wl_fail("narrative: possess did not switch to Grimm");
+    }
+
+    if (!wl_send("exit 0\n")) {
+        wl_fail("narrative: could not write exit");
+    }
+    for (waited = 0; waited < 5000; waited += 50) {
+        pid_t reaped = waitpid(child, &status, WNOHANG);
+
+        if (reaped == child) {
+            break;
+        }
+        if (reaped < 0) {
+            break;
+        }
+        (void)wl_pump(50);
+    }
+}
+
+/*
  * A second, short session with --plain: a failing command must produce no
  * narrative text at all.
  */
@@ -180,7 +260,6 @@ static void wl_plain_session(const char *binary) {
     wl_master = -1;
     wl_output_len = 0;
     wl_output[0] = '\0';
-    wl_failures = 0;
 
     child = forkpty(&wl_master, NULL, NULL, NULL);
     if (child < 0) {
@@ -238,7 +317,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (child == 0) {
-        execl(binary, binary, (char *)NULL);
+        execl(binary, binary, "--plain", (char *)NULL);
         _exit(127);
     }
 
@@ -424,15 +503,6 @@ int main(int argc, char **argv) {
         wl_fail("shell unusable after Ctrl-C");
     }
 
-    /* The narrative slice speaks on failure (first failure is deterministic). */
-    if (!wl_send("false\n")) {
-        wl_fail("could not write to the terminal");
-    }
-    if (wl_next_prompt(&prompts, "no prompt after false") &&
-        !wl_wait_for("Something refused you", 2000)) {
-        wl_fail("narrative slice did not speak on failure");
-    }
-
     /*
      * At the prompt the editor owns the terminal and keeps it raw; while a
      * foreground command runs it must be back to the saved settings.
@@ -484,6 +554,13 @@ int main(int argc, char **argv) {
     if (wl_failures != 0) {
         fprintf(stderr, "pty: FAIL (%d)\n--- session ---\n%s\n", wl_failures,
                 wl_output);
+        return 1;
+    }
+
+    wl_narrative_session(binary);
+    if (wl_failures != 0) {
+        fprintf(stderr, "pty: FAIL (%d in the narrative session)\n%s\n",
+                wl_failures, wl_output);
         return 1;
     }
 

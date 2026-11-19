@@ -7,6 +7,7 @@
 #include "jobs/job.h"
 #include "jobs/signal.h"
 #include "line/read.h"
+#include "narrative/persona.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -627,6 +628,55 @@ static int wl_builtin_read(struct wl_shell *sh, int argc, char **argv) {
     return 0;
 }
 
+static int wl_builtin_possess(struct wl_shell *sh, int argc, char **argv) {
+    const struct wl_packset *packs = sh->narrative.packs;
+
+    if (packs == NULL || packs->count == 0) {
+        fprintf(stderr, "wonderland: possess: no personas loaded\n");
+        return 1;
+    }
+
+    if (argc == 2 && strcmp(argv[1], "-l") == 0) {
+        for (size_t index = 0; index < packs->count; index++) {
+            const struct wl_persona *persona = &packs->personas[index];
+
+            printf("%-12s %-9s %zu lines\n", persona->id,
+                   persona->class_name, persona->line_count);
+        }
+        return 0;
+    }
+
+    if (argc == 1) {
+        const struct wl_persona *persona =
+            wl_narrative_persona(&sh->narrative);
+
+        if (persona == NULL) {
+            fprintf(stderr, "wonderland: possess: no active persona\n");
+            return 1;
+        }
+        printf("%s\n", persona->display_name);
+        return 0;
+    }
+
+    if (argc > 2) {
+        fprintf(stderr, "wonderland: possess: too many arguments\n");
+        return 2;
+    }
+
+    if (!wl_narrative_possess(&sh->narrative, argv[1])) {
+        fprintf(stderr, "wonderland: possess: no such persona: %s\n",
+                argv[1]);
+        return 1;
+    }
+    {
+        const struct wl_persona *persona =
+            wl_narrative_persona(&sh->narrative);
+
+        printf("%s\n", (persona != NULL) ? persona->display_name : argv[1]);
+    }
+    return 0;
+}
+
 static int wl_builtin_colon(struct wl_shell *sh, int argc, char **argv) {
     (void)sh;
     (void)argc;
@@ -649,6 +699,7 @@ static const struct wl_builtin wl_builtins[] = {
     {"export", wl_builtin_export},
     {"fg", wl_builtin_fg},
     {"jobs", wl_builtin_jobs},
+    {"possess", wl_builtin_possess},
     {"read", wl_builtin_read},
     {"return", wl_builtin_return},
     {"set", wl_builtin_set},

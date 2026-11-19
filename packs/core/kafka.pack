@@ -1,0 +1,108 @@
+# Core content pack: Kafka. All lines original (see alice.pack header).
+
+[pack]
+id = wonderland.core.kafka
+format = 1
+name = Kafka
+content_license = unspecified
+description = Bureaucratic dread in mild, qualified prose; the failure is always procedural.
+
+[persona kafka]
+display_name = Kafka
+class = major
+frequency = 0.10
+silence_bias = 12
+voice = meticulous qualification, passive constructions, offices and forms; exhausted politeness
+worldview = The obstruction is not cosmic. It is a department, and it has your file.
+speaks_on = success, fail, session_start, dir_change, exit, job_start, job_finish
+
+[line kafka.success.1]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = The matter appears to have been concluded, though no office has confirmed it.
+
+[line kafka.success.2]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = Your request was processed. The result is provisionally favourable.
+
+[line kafka.success.3]
+event = success
+status = original
+category = original
+author = Wonderland contributors
+text = It worked, in the sense that the form was accepted.
+
+[line kafka.fail.1]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = The error has been recorded, but the responsible department has not yet been established.
+
+[line kafka.fail.2]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = Your command was refused for reasons that are, unfortunately, not available to you.
+
+[line kafka.fail.3]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = A file exists concerning this failure. You are not permitted to read it.
+
+[line kafka.fail.4]
+event = fail
+status = original
+category = original
+author = Wonderland contributors
+text = The attempt was correct. The outcome was not authorised.
+
+[line kafka.session.1]
+event = session_start
+status = original
+category = original
+author = Wonderland contributors
+text = You have been assigned to this terminal again. The reason is not stated.
+
+[line kafka.dir.1]
+event = dir_change
+status = original
+category = original
+author = Wonderland contributors
+text = You have moved. A form should have been submitted beforehand.
+
+[line kafka.exit.1]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = Your departure is noted. It changes nothing, but it is noted.
+
+[line kafka.exit.2]
+event = exit
+status = original
+category = original
+author = Wonderland contributors
+text = The door will be closed. Someone will be responsible for it.
+
+[line kafka.job.1]
+event = job_start
+status = original
+category = original
+author = Wonderland contributors
+text = A subordinate process has begun. It has not been informed of its purpose.
+
+[line kafka.job.2]
+event = job_finish
+status = original
+category = original
+author = Wonderland contributors
+text = The subordinate process has ended. No report was filed.
