@@ -78,7 +78,13 @@ specification, not against another shell.
 | Syntax diagnostics with line, column and caret | `tests/unit/test_ast.c`, `tests/run.sh` |
 | Background `&` for any statement, `$!`, `wait` | `tests/run.sh`, pty |
 | `jobs`, `fg`, `bg`, `%n`/`%%`/`%-`, Ctrl-Z suspend/resume | `tests/run.sh`, pty |
-| Non-whitespace `IFS` exactness, `"pre$@"` adjacency, `kill`/`disown`, async job notifications | **not implemented/approximate** (D-0068, D-0076, D-0082) |
+| Raw-mode line editor: arrows, Home/End/Delete, Ctrl-A/E/B/F/K/U/W/L/C/D, history recall | `tests/pty/pty_test.c` |
+| History: XDG file, 0600, bounded, duplicate suppression | `tests/unit/test_history.c` |
+| Tab completion: `$PATH` commands and paths (common prefix) | `tests/pty/pty_test.c` |
+| `WONDERLAND_PROMPT`, SIGWINCH redraw | pty session; documented limits |
+| `$'...'` ANSI-C quoting | `tests/run.sh` |
+| `read [-r] name...`, `REPLY`, EOF status | `tests/run.sh` |
+| Non-whitespace `IFS` exactness, `"pre$@"` adjacency, `kill`/`disown`, async job notifications, UTF-8 cursor movement, completion listing | **not implemented/approximate** (D-0068, D-0076, D-0082, D-0089) |
 
 ### 3.1 POSIX surface
 

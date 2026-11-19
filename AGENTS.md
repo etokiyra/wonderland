@@ -26,12 +26,13 @@ Repository docs are normative:
 | `docs/ROADMAP.md` | milestone order and exit criteria |
 | `docs/RISKS.md` | known failure modes and tripwires |
 
-Current status: Milestone 4 (2026-11-19). Variables, expansion, redirections,
-pipelines, control flow, functions, positional parameters, traps, `set`,
-script files, and job control (`&`, `jobs`, `fg`, `bg`, `wait`, Ctrl-Z) work;
-14 differential cases agree with dash and bash. History, the line editor and
-completion do not, and neither do `local`, `read`, `exec`, `command`. Do not
-describe the project as a daily driver yet.
+Current status: Milestone 5 (2026-11-19). The shell is usable for scripts and
+daily interactive work: expansion, redirections, pipelines, control flow,
+functions, positional parameters, traps, `set`, script files, job control, a
+raw-mode line editor, history and completion all work; 14 differential cases
+agree with dash and bash. Missing: the narrative layer, Bash extensions,
+`local`, `exec`, `kill`/`disown`. It is not installed in `/etc/shells` and must
+not be until the dogfooding gate is met.
 
 ## 2. Non-negotiable safety rules
 
@@ -61,7 +62,7 @@ the world feel better.
 
 ```sh
 make                  # build build/wonderland
-make test             # unit + CLI + pty + isolation + differential tests
+make test             # unit + CLI + pty + isolation + differential tests (75/142/14)
 make diff             # differential cases only (needs dash and bash)
 make asan             # rebuild with ASan/UBSan and run the same suite
 make memcheck         # unit suite under valgrind (developer tool)

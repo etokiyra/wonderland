@@ -980,3 +980,80 @@ Two consequences of not having a job table yet:
 
 M4 removes both: it adds the job table, `WUNTRACED`/`SIGCONT`, `fg`/`bg`, and
 restores default stop dispositions in children.
+
+---
+
+## §12. Milestone 5 implementation decisions
+
+### D-0083 — The editor is raw only while a line is edited
+**2026-11-19 · accepted**
+
+`src/line/editor.c` switches the terminal to raw mode when a line is requested
+and restores the saved settings before returning, so every command runs with
+canonical settings (the pty test asserts both states). Keys: arrows,
+Home/End/Delete, Ctrl-A/B/E/F/K/U/W/L/C/D/P/N. Redraw is
+"carriage return, rewrite, erase tail", which does not depend on the terminal
+width and therefore survives resizes; SIGWINCH sets a flag and the editor
+redraws when the read is interrupted. Cursor arithmetic is byte-based: UTF-8
+combining or wide characters are not handled yet.
+
+### D-0084 — History is a bounded XDG file with 0600 permissions
+**2026-11-19 · accepted**
+
+Entries are kept in memory (oldest dropped past 1000) and persisted one per
+line at `$XDG_STATE_HOME/wonderland/history` (fallback
+`$HOME/.local/state/wonderland/history`). The directory is created 0700 and the
+file written with mode 0600. Empty lines and an immediate duplicate are not
+stored. Loading failure is ignored (missing, unreadable, or corrupt history
+must never stop a shell). The file is only loaded and saved for interactive
+sessions, so `-c`, scripts and pipes never touch it.
+
+### D-0085 — Completion is command/path prefix completion, not a UI
+**2026-11-19 · accepted**
+
+Tab completes the word before the cursor: the first word matches executables on
+`$PATH`; later words match directory entries (with `/dir` handling). The longest
+common prefix is inserted; a unique file gets a trailing space and a unique
+directory a trailing `/`. Candidates are not listed, quoted, or paginated.
+Paths containing spaces therefore complete but still need manual quoting.
+This is deliberately smaller than Bash completion and is documented as such.
+
+### D-0086 — Prompt override is verbatim; resize only redraws
+**2026-11-19 · accepted**
+
+`WONDERLAND_PROMPT`, when non-empty, replaces the default prompt literally (no
+`\u`/`\w` escapes). The default `wonderland:<path> [status]$ ` remains the
+tested shape. Resize handling redraws the current line; it does not reflow
+history or multi-line output, because the editor never depends on width.
+
+### D-0087 — `$'...'` is decoded at lex time; NUL is rejected
+**2026-11-19 · accepted**
+
+ANSI-C quoting is handled in the word scanner and produces a quoted literal
+part, so globbing/splitting treat it like `'...'`. Supported escapes: `\a \b \e
+\f \n \r \t \v \\ \' \" \?`, octal up to three digits, and `\x` with one or two
+hex digits. `\0` (a NUL byte) is a syntax error: argv strings cannot carry NUL
+and silently truncating would be worse. Unknown escapes keep the backslash and
+the character, matching bash's forgiving behaviour.
+
+### D-0088 — `read` is one canonical line, split on IFS
+**2026-11-19 · accepted**
+
+`read [-r] name...` reads one line from stdin in canonical mode (the editor
+restores it before the command), strips backslashes unless `-r`, and assigns
+fields split on `IFS`. The last name receives the remainder with trailing IFS
+trimmed; with no names the whole line goes to `REPLY`. EOF returns 1, leaving
+variables untouched. Backslash-newline line continuation and `read -n`/`-t`
+are not implemented; `read` inside an interactive prompt is therefore
+line-oriented, not character-oriented.
+
+### D-0089 — M5 limitations
+**2026-11-19 · accepted**
+
+* No kill ring, undo, transient-mark, or Ctrl-R history search.
+* Completion does not list ambiguous candidates and does not quote spaces.
+* No UTF-8/wide-character cursor movement; columns are bytes.
+* `printf` remains the external utility; a builtin is M8 polish.
+* A terminal closed mid-line (SIGHUP) saves no history for that line.
+* Interactive history is loaded once at startup; another shell writing the
+  same file concurrently is last-writer-wins.

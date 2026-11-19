@@ -235,6 +235,21 @@ foreground pipeline contributes several processes to one job. The shell does
 not use SIGCHLD for bookkeeping: it waits synchronously for foreground jobs
 and reaps with `WNOHANG` between commands (D-0080).
 
+### 4.6 Implemented at M5
+
+| Step | File |
+|------|------|
+| raw-mode editor, redraw, completion | `src/line/editor.c` |
+| history storage and XDG path | `src/line/history.c` |
+| SIGWINCH flag | `src/jobs/signal.c` |
+| prompt override, history lifetime | `src/main.c` |
+| `$'...'` decoding | `src/lex/word.c` |
+| `read` | `src/builtins/builtins.c` |
+
+The editor restores canonical settings before returning a line, so execution
+never runs with a raw terminal. History is only read and written for
+interactive sessions.
+
 ## 5. Core data model
 
 ```c

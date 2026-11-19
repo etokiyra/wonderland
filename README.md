@@ -3,12 +3,12 @@
 A Unix shell in C17 for Linux, with an optional narrative layer: a dark
 fairy-tale world inhabited by personas who react to what happens in the shell.
 
-**Status: Milestone 4. Wonderland is a working shell for scripts and
-interactive use, including job control.** Variables, expansion, redirections,
-pipelines, control flow, functions, positional parameters, traps, `set`,
-script files, background jobs, `jobs`/`fg`/`bg`/`wait` and Ctrl-Z work.
-History, the line editor and completion do not. Do not put it in `/etc/shells`
-and do not `chsh` to it.
+**Status: Milestone 5. Wonderland is a working shell for scripts and daily
+interactive use.** Variables, expansion, redirections, pipelines, control
+flow, functions, positional parameters, traps, `set`, script files, job
+control, a raw-mode line editor, history, and tab completion work. The
+narrative layer and Bash extensions do not. Do not put it in `/etc/shells`
+and do not `chsh` to it yet.
 
 The ordering principle is not decorative:
 
@@ -60,8 +60,12 @@ wonderland:~/Projects/wonderland $ bg
   approximations).
 * Script files: `wonderland script.sh arg...` with `$1…` set; `-c 'cmd' name
   args` follows the POSIX `$0` convention.
-* Builtins: `:`, `break`, `cd`, `continue`, `exit`, `export`, `return`,
-  `set`, `shift`, `trap`, `unset`.
+* Interactive editing: arrows, Home/End/Delete, Ctrl-A/E/B/F/K/U/W/L/C/D,
+  history recall (Up/Down), tab completion, `WONDERLAND_PROMPT`.
+* History persisted at `$XDG_STATE_HOME/wonderland/history` (0600, bounded).
+* `$'...'` ANSI-C quoting and a `read [-r]` builtin.
+* Builtins: `:`, `bg`, `break`, `cd`, `continue`, `exit`, `export`, `fg`,
+  `jobs`, `read`, `return`, `set`, `shift`, `trap`, `unset`, `wait`.
 * `--plain` / `WONDERLAND_PLAIN=1`; the narrative layer is not built yet, so
   plain mode currently has nothing to suppress.
 * A parser for the whole grammar in `docs/GRAMMAR.md` with caret diagnostics.
@@ -70,23 +74,25 @@ wonderland:~/Projects/wonderland $ bg
 
 | Missing | Arrives |
 |---|---|
-| History, line editing, completion, prompt configuration | M5 |
-| `kill`, `disown`, `jobs -l`, warning on exit with stopped jobs | M8 polish |
-| `local`, `read`, `exec`, `command`, `type`, `wait`, `getopts`, `umask` | later |
-| Aliases | opt-in, if ever |
 | Personas, packs, `possess`, `rest`, `go-to-alice` | M3.5, M6–M7 |
+| `kill`, `disown`, `jobs -l`, warning on exit with stopped jobs | M8 polish |
+| UTF-8 cursor movement, completion listing, Ctrl-R history search | M8 polish |
+| `local`, `exec`, `command`, `type`, `getopts`, `umask` | later |
+| Aliases | opt-in, if ever |
 
-Known sharp edges (D-0076, D-0082): `"$@"` adjacent to other text joins instead
+Known sharp edges (D-0076, D-0082, D-0089): `"$@"` adjacent to other text joins instead
 of splitting; non-whitespace `IFS` collapses repeated delimiters; INT/TERM
 traps and job notifications run between commands rather than asynchronously;
 `set -e` implements the common suppression rule, not every POSIX corner;
-background pipelines appear as one job rather than one entry per stage.
+background pipelines appear as one job rather than one entry per stage; the
+editor is byte-oriented (no UTF-8 cursor movement) and completion does not list
+candidates or quote paths with spaces.
 
 ## Build and test
 
 ```sh
 make                 # build/wonderland
-make test            # 72 unit cases + 138 CLI checks + pty + 14 differential cases
+make test            # 75 unit cases + 142 CLI checks + pty + 14 differential cases
 make diff            # differential cases only (dash + bash required)
 make asan            # the same under ASan/UBSan
 make memcheck        # unit suite under valgrind (if installed)
@@ -101,7 +107,7 @@ tools: `valgrind`, `cppcheck`, `dash` (required for `make diff`).
 ```
 src/core       shell state, variables, positional frames, options, buffers
 src/term       terminal snapshot/restore, prompt formatting
-src/line       canonical-mode reader (the M5 editor replaces it)
+src/line       raw-mode editor, history, canonical reader used by read(1)
 src/lex        lexer, word parts, quoting, here-document bodies
 src/parse      parser, here-document queue, diagnostics
 src/ast        arena, AST nodes, stable dump

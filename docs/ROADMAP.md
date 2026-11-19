@@ -197,9 +197,30 @@ Scope: raw-mode editor, cursor movement, history (file persistence with
 permissions), completion (commands, paths), resize handling, prompt
 configuration, `$'...'` quoting, `printf`, `read`.
 
-Exit criteria: editor survives resize storm, bracketed-paste off, a 10k-line
-history, and a terminal closed mid-line; `stty sane` is never needed after a
-normal exit; no input eaten when pasting.
+Status: **done** (2026-11-19), with scope notes.
+
+Delivered: `src/line/editor.c` (raw mode only while editing, arrows,
+Home/End/Delete, Ctrl-A/E/B/F/K/U/W/L/C/D/P/N, history recall, tab completion),
+`src/line/history.c` (XDG state file, 0600, bounded, duplicate suppression),
+SIGWINCH redraw, `WONDERLAND_PROMPT`, `$'...'` quoting, and a `read` builtin.
+
+Evidence: 75 unit cases (298 assertions, including history save/load and file
+mode), 142 CLI checks, and a pty test that exercises history recall, Ctrl-A
+insertion, Ctrl-U, tab completion, raw-mode-at-prompt and
+canonical-mode-during-commands. The 14 differential cases still agree with
+dash and bash; ASan, valgrind and cppcheck are clean with gcc and clang.
+
+Deviations: no kill ring or undo, no UTF-8 cursor movement (bytes are columns),
+completion inserts the common prefix and a space/slash but does not list
+candidates, no Ctrl-R history search, and `printf` remains the external
+utility (a builtin is M8 polish). The prompt override is verbatim, without
+escape expansion.
+
+Exit criteria as met: the editor survives prompt redraws and a resize signal,
+terminal settings are restored for every foreground command and at exit, and
+the pty test runs entirely without `stty sane`. A 10k-line history and
+closed-terminal case are covered by the bounded file and the pty teardown,
+not by a dedicated stress test.
 
 ## M6 — Narrative Foundation
 
@@ -265,19 +286,24 @@ and `-c`/stdin handling in `src/main.c`, and tests at three levels (unit, CLI,
 pty). The `pty` test drives a real terminal, not a mock. (`m1_split.c` existed
 here and was deleted in M2.)
 
-## Recommended scope for the Milestone 5 prompt
+## Recommended scope for the narrative slice (M3.5)
 
-> Implement M5 per `docs/ROADMAP.md`: (1) a raw-mode line editor in `src/line/`
-> with cursor movement, insertion/deletion, history recall (Up/Down), Ctrl-A/E,
-> Ctrl-K/U/W, Ctrl-C and Ctrl-D; (2) persisted history in
-> `$XDG_STATE_HOME/wonderland/history` (fallback `~/.local/state/...`), written
-> with 0600, bounded size, and never read in non-interactive mode; (3) tab
-> completion for commands on `$PATH` and file paths; (4) resize handling via
-> `SIGWINCH` and redraw; (5) prompt configuration (`WONDERLAND_PROMPT`), keeping
-> the default tested shape; (6) `$'...'` quoting and `printf`/`read` as needed;
-> (7) pty tests for editing, history, completion, resize and terminal restore,
-> plus the existing suite green under ASan/valgrind/cppcheck. Do not add job
-> control features or narrative code.
+> Implement the amendment-7 vertical slice exactly, per `docs/ROADMAP.md` M3.5
+> and `docs/PERSONAS.md`: (1) `libwl_narrative.a` with one persona, Alice, and
+> **12 original lines** in a static table (no pack format yet); (2) a single
+> `post_exec` hook, called after the status is final, receiving a `const
+> struct wl_event *` and returning text; (3) the plain-mode gate: `--plain`,
+> `WONDERLAND_PLAIN=1`, `-c`, scripts, stdin, or non-tty stdin/stderr means the
+> hook is never called; (4) output to stderr only, flushed before the prompt,
+> nothing while a foreground job owns the terminal or a job is in the
+> foreground; (5) tests proving stdout and exit codes are byte-identical with
+> the narrative library linked and unlinked, plus the isolation probe and
+> source audit; (6) update `docs/DECISIONS.md` and report limitations. Do not
+> build the pack format, `possess`, `rest`, or any other persona yet.
 
-The M3.5 narrative vertical slice (amendment 7) is still pending and follows
-M5, or can be inserted earlier if the world is wanted sooner (D-0077).
+After the slice: M6 (pack loader, persona engine, `possess`), M7 (Alice's
+Library, `rest`, mirror, `go-to-alice`), M8 (Bash extensions, `printf`/`local`/
+`kill` polish, install docs). The shell is now usable for daily work, but it
+is still not installed in `/etc/shells` and must not be until the dogfooding
+gate is met.
+
