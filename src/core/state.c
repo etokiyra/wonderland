@@ -141,7 +141,8 @@ char *wl_state_default_path(void) {
     char *path;
     size_t length;
 
-    if (xdg != NULL && xdg[0] != '\0') {
+    /* XDG paths must be absolute; a relative value is ignored. */
+    if (xdg != NULL && xdg[0] == '/') {
         length = strlen(xdg) + strlen("/wonderland/state") + 1;
         path = malloc(length);
         if (path != NULL) {
@@ -149,7 +150,7 @@ char *wl_state_default_path(void) {
         }
         return path;
     }
-    if (home == NULL || home[0] == '\0') {
+    if (home == NULL || home[0] != '/') {
         return NULL;
     }
     length = strlen(home) + strlen("/.local/state/wonderland/state") + 1;
