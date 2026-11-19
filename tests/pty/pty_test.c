@@ -240,6 +240,24 @@ int main(int argc, char **argv) {
         wl_fail("cd did not change the working directory");
     }
 
+    /* A pipeline through a real terminal. */
+    if (!wl_send("printf 'a\\nb\\n' | wc -l\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after the pipeline") &&
+        !wl_wait_for("2\r\n", 2000)) {
+        wl_fail("pipeline produced the wrong output");
+    }
+
+    /* A here-document typed at the prompt. */
+    if (!wl_send("cat <<EOF\nheredoc body\nEOF\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after the here-document") &&
+        !wl_wait_for("heredoc body\r\n", 2000)) {
+        wl_fail("here-document produced the wrong output");
+    }
+
     /* Ctrl-C at the prompt must return to a fresh prompt, not kill the shell. */
     if (!wl_send("abc")) {
         wl_fail("could not write to the terminal");

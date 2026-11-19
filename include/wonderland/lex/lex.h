@@ -39,6 +39,14 @@ bool wl_lex_next(struct wl_lexer *lexer, struct wl_token *token);
 bool wl_lex_word(struct wl_lexer *lexer, struct wl_word **word);
 
 /*
+ * Scans an entire here-document body as a single word: whitespace does not
+ * separate, quotes are literal, and only `$`, backtick and backslash have
+ * meaning. Used when an unquoted here-document delimiter marks the body for
+ * expansion (docs/DECISIONS.md D-0054).
+ */
+bool wl_lex_word_heredoc(struct wl_lexer *lexer, struct wl_word **word);
+
+/*
  * Reads one here-document body. The lexer must be positioned immediately
  * after the newline that ends the command line. On success, advances past the
  * delimiter line. Unterminated input sets diag->incomplete and returns false.

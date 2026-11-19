@@ -1059,6 +1059,8 @@ static struct wl_node *wl_p_parse_command_inner(struct wl_parser *parser) {
         } else {
             node = wl_p_parse_simple(parser);
         }
+    } else if (wl_p_at_redir(parser)) {
+        node = wl_p_parse_simple(parser);
     } else {
         return wl_p_fail(parser, parser->token.kind == WL_TOK_EOF,
                          "expected a command");

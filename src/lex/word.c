@@ -32,6 +32,7 @@ struct wl_scanner {
     struct wl_buf literal;
     int literal_state; /* 0 none, 'u' unquoted, 'q' quoted */
     char stop;         /* 0, or '}' inside ${...} */
+    bool heredoc;      /* body mode: whitespace and quotes are literal */
 };
 
 static bool wl_is_name_start(char c) {
@@ -76,7 +77,7 @@ static bool wl_parts_push(struct wl_part_vector *parts,
 }
 
 static void wl_scan_init(struct wl_scanner *scan, struct wl_lexer *lexer,
-                         char stop) {
+                         char stop, bool heredoc) {
     scan->lexer = lexer;
     scan->parts.items = NULL;
     scan->parts.count = 0;
@@ -84,6 +85,7 @@ static void wl_scan_init(struct wl_scanner *scan, struct wl_lexer *lexer,
     wl_buf_init(&scan->literal);
     scan->literal_state = 0;
     scan->stop = stop;
+    scan->heredoc = heredoc;
 }
 
 static void wl_scan_free(struct wl_scanner *scan) {
@@ -156,12 +158,19 @@ static bool wl_scan_push(struct wl_scanner *scan,
     return true;
 }
 
-static bool wl_scan_delimiter(char c, char stop) {
+static bool wl_scan_delimiter(char c, char stop, bool heredoc) {
+    if (heredoc) {
+        return false;
+    }
+    if (stop != 0) {
+        /* Inside ${...}: only an unquoted `}` ends the operand word. */
+        return c == stop;
+    }
     if (c == ' ' || c == '\t' || c == '\n' || c == '|' || c == '&' ||
         c == ';' || c == '(' || c == ')' || c == '<' || c == '>') {
         return true;
     }
-    return stop != 0 && c == stop;
+    return false;
 }
 
 static struct wl_str wl_scan_copy(struct wl_scanner *scan, size_t start,
@@ -539,7 +548,7 @@ static bool wl_scan_operand(struct wl_scanner *scan,
     struct wl_word *word;
     size_t start = scan->lexer->pos;
 
-    wl_scan_init(&nested, scan->lexer, '}');
+    wl_scan_init(&nested, scan->lexer, '}', false);
     if (!wl_scan_body(&nested)) {
         wl_scan_free(&nested);
         return false;
@@ -755,8 +764,55 @@ static bool wl_scan_body(struct wl_scanner *scan) {
     while (!wl_lex_done(lexer)) {
         char c = wl_lex_peek_at(lexer, 0);
 
-        if (wl_scan_delimiter(c, scan->stop)) {
+        if (wl_scan_delimiter(c, scan->stop, scan->heredoc)) {
             break;
+        }
+
+        if (scan->heredoc) {
+            if (c == '\\') {
+                char next;
+
+                wl_lex_skip(lexer, 1);
+                if (wl_lex_done(lexer)) {
+                    if (!wl_scan_append_byte(scan, '\\', 'u')) {
+                        return false;
+                    }
+                    break;
+                }
+                next = wl_lex_peek_at(lexer, 0);
+                if (next == '$' || next == '`' || next == '\\') {
+                    if (!wl_scan_append_byte(scan, next, 'u')) {
+                        return false;
+                    }
+                    wl_lex_skip(lexer, 1);
+                } else if (next == '\n') {
+                    wl_lex_skip(lexer, 1);
+                } else {
+                    if (!wl_scan_append_byte(scan, '\\', 'u') ||
+                        !wl_scan_append_byte(scan, next, 'u')) {
+                        return false;
+                    }
+                    wl_lex_skip(lexer, 1);
+                }
+                continue;
+            }
+            if (c == '$') {
+                if (!wl_scan_dollar(scan, false)) {
+                    return false;
+                }
+                continue;
+            }
+            if (c == '`') {
+                if (!wl_scan_backtick(scan, false)) {
+                    return false;
+                }
+                continue;
+            }
+            if (!wl_scan_append_byte(scan, c, 'u')) {
+                return false;
+            }
+            wl_lex_skip(lexer, 1);
+            continue;
         }
 
         if (c == '\\') {
@@ -854,7 +910,7 @@ bool wl_lex_word(struct wl_lexer *lexer, struct wl_word **word) {
         return false;
     }
 
-    wl_scan_init(&scan, lexer, 0);
+    wl_scan_init(&scan, lexer, 0, false);
     lexer->depth++;
     ok = wl_scan_body(&scan);
     if (ok) {
@@ -865,6 +921,30 @@ bool wl_lex_word(struct wl_lexer *lexer, struct wl_word **word) {
         }
     }
     lexer->depth--;
+    wl_scan_free(&scan);
+
+    if (!ok) {
+        return false;
+    }
+    *word = result;
+    return true;
+}
+
+bool wl_lex_word_heredoc(struct wl_lexer *lexer, struct wl_word **word) {
+    struct wl_scanner scan;
+    struct wl_word *result = NULL;
+    size_t start = lexer->pos;
+    bool ok;
+
+    wl_scan_init(&scan, lexer, 0, true);
+    ok = wl_scan_body(&scan);
+    if (ok) {
+        result = wl_scan_finish(&scan, start);
+        if (result == NULL) {
+            wl_diag_set(lexer->diag, start, false, "out of memory");
+            ok = false;
+        }
+    }
     wl_scan_free(&scan);
 
     if (!ok) {

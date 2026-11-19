@@ -513,6 +513,21 @@ WL_TEST(reserved_word_edge_cases) {
     fixture_close(&fixture);
 }
 
+WL_TEST(redirection_only_command_parses) {
+    struct fixture fixture;
+    const char *dump;
+
+    fixture_open(&fixture);
+    dump = fixture_dump(&fixture, "> out 2>&1");
+    WL_ASSERT(dump != NULL);
+    if (dump != NULL) {
+        WL_ASSERT_CONTAINS(dump, "(simple");
+        WL_ASSERT_CONTAINS(dump, "(redir 1> (word (lit u \"out\")))");
+        WL_ASSERT_CONTAINS(dump, "(redir 2>& (word (lit u \"1\")))");
+    }
+    fixture_close(&fixture);
+}
+
 void wl_suite_ast(void) {
     wl_test_register("ast: simple command dump", simple_command_has_a_stable_dump);
     wl_test_register("ast: quoting into parts", quoting_survives_into_word_parts);
@@ -529,6 +544,7 @@ void wl_suite_ast(void) {
     wl_test_register("ast: arithmetic source", arithmetic_is_stored_as_source);
     wl_test_register("ast: tilde", tilde_is_only_special_at_word_start);
     wl_test_register("ast: redirections", redirections_keep_their_fds);
+    wl_test_register("ast: redirection-only", redirection_only_command_parses);
     wl_test_register("ast: here-documents", heredoc_bodies_are_collected);
     wl_test_register("ast: compound commands", compound_commands_parse);
     wl_test_register("ast: reserved words as arguments", reserved_words_are_ordinary_arguments);

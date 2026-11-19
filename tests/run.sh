@@ -247,16 +247,99 @@ run -c "$continued"
 expect "backslash-newline continues a command" stdout_is_line abcd
 
 run -c 'echo $HOME'
-expect "expansion is refused in M2" status_is 2
-expect "expansion refusal explains itself" stderr_has "expansion"
+expect "parameter expansion" stdout_has "$HOME"
 
-run -c "echo hi > $tmp/outfile"
-expect "redirection is refused in M2" status_is 2
-expect "redirection refusal explains itself" stderr_has "redirection"
+run -c 'X=hello; echo $X'
+expect "assignments and expansion" stdout_is_line hello
 
-run -c 'echo hi | cat'
-expect "pipeline is refused in M2" status_is 2
-expect "pipeline refusal explains itself" stderr_has "pipeline"
+run -c 'X=hello; echo "${X}there"'
+expect "braced expansion" stdout_is_line hellothere
+
+run -c 'echo $((1 + 2 * 3))'
+expect "arithmetic expansion" stdout_is_line 7
+
+run -c 'echo $(echo sub)'
+expect "command substitution" stdout_is_line sub
+
+run -c 'X="a b"; printf "[%s]\n" $X'
+expect "unquoted expansion split into fields" stdout_is_text '[a]\n[b]\n'
+
+run -c 'X="a b"; printf "[%s]\n" "$X"'
+expect "quoted expansion stays one field" stdout_is_line '[a b]'
+
+run -c 'X=abcdef; echo ${X#ab} ${X%%d*}'
+expect "pattern trimming" stdout_is_line 'cdef abc'
+
+run -c 'X=; printf "[%s]\n" ${X:-a b}'
+expect "unquoted operand splits" stdout_is_text '[a]\n[b]\n'
+
+run -c 'X=; printf "[%s]\n" ${X:-"a b"}'
+expect "quoted operand stays one field" stdout_is_line '[a b]'
+
+run -c 'unset Y; echo ${Y:=assigned}; echo $Y'
+expect ":= assigns the default" stdout_is_text 'assigned\nassigned\n'
+
+run -c 'echo ${MISSING:?custom message}'
+expect ":? fails the command" status_is 1
+expect ":? reports its message" stderr_has "custom message"
+
+run -c "> $tmp/emptyfile; test -f $tmp/emptyfile"
+expect "redirection without a command" status_is 0
+
+run -c 'X=1; unset X; echo "[$X]"'
+expect "unset removes the variable" stdout_is_line '[]'
+
+run -c "export WL_T=42; sh -c 'echo \$WL_T'"
+expect "exported variables reach children" stdout_is_line 42
+
+run -c "X=one sh -c 'echo \$X'"
+expect "prefix assignment reaches the child environment" stdout_is_line one
+
+# --- redirections and pipelines -------------------------------------------
+
+run -c "echo hi > $tmp/outfile; cat $tmp/outfile"
+expect "output redirection" stdout_is_line hi
+
+run -c "echo one > $tmp/app; echo two >> $tmp/app; cat $tmp/app"
+expect "append redirection" stdout_is_text 'one\ntwo\n'
+
+run -c "printf 'a\nb\n' > $tmp/infile; wc -l < $tmp/infile"
+expect "input redirection" stdout_is_line 2
+
+run -c 'echo out 2>&1'
+expect "2>&1 duplicates stdout" stdout_is_line out
+expect "2>&1 leaves stderr empty" stderr_empty
+
+run -c 'echo hi | tr a-z A-Z'
+expect "pipeline output" stdout_is_line HI
+
+run -c 'false | true; echo $?'
+expect "pipeline status is the last stage" stdout_is_line 0
+
+run -c 'true | false; echo $?'
+expect "pipeline status reflects failure" stdout_is_line 1
+
+run -c 'echo one | cat | wc -l'
+expect "three-stage pipeline" stdout_is_line 1
+
+heredoc_input='cat <<EOF
+hi $HOME
+EOF'
+run -c "$heredoc_input"
+expect "here-document body expands" stdout_has "$HOME"
+
+heredoc_quoted='cat <<'"'"'EOF'"'"'
+no $HOME here
+EOF'
+run -c "$heredoc_quoted"
+expect "quoted here-document delimiter is literal" stdout_is_line 'no $HOME here'
+
+touch "$tmp/glob-a.txt" "$tmp/glob-b.txt"
+run -c "echo $tmp/glob-*.txt"
+expect "pathname expansion" stdout_is_line "$tmp/glob-a.txt $tmp/glob-b.txt"
+
+run -c "echo $tmp/nope-*.txt"
+expect "unmatched glob stays literal" stdout_is_line "$tmp/nope-*.txt"
 
 run -c 'if true; then echo y; fi'
 expect "compound command is refused in M2" status_is 2
@@ -273,10 +356,10 @@ status=$?
 expect "over-large stdin is refused" status_is 2
 expect "over-large stdin explains itself" stderr_has "too large"
 
-many_words=$(awk 'BEGIN { for (i = 0; i < 300; i++) printf "w "; }')
+many_words=$(awk 'BEGIN { for (i = 0; i < 300; i++) printf "zzz "; }')
 run -c "$many_words"
-expect "too many arguments are refused" status_is 2
-expect "too many arguments explain themselves" stderr_has "too many"
+expect "large argument lists reach execution" status_is 127
+expect "large argument lists name the missing command" stderr_has "zzz: command not found"
 
 # --- summary ---------------------------------------------------------------
 

@@ -290,5 +290,6 @@ int main(int argc, char **argv) {
     if (interactive) {
         wl_term_restore(&term);
     }
+    wl_shell_destroy(&shell);
     return shell.last_status;
 }
