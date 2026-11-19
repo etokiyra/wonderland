@@ -110,6 +110,7 @@ expect "-c writes nothing to stderr on success" stderr_empty
 run -c 'false'
 expect "-c propagates a failing status" status_is 1
 expect "-c failing command writes nothing to stdout" stdout_empty
+expect "-c failing command writes nothing to stderr (plain)" stderr_empty
 
 run -c 'exit 5'
 expect "-c exit 5" status_is 5

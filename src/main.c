@@ -20,6 +20,7 @@
 #include "line/editor.h"
 #include "line/history.h"
 #include "line/read.h"
+#include "narrative/persona.h"
 #include "parse/parse.h"
 #include "term/prompt.h"
 #include "term/term.h"
@@ -33,6 +34,48 @@
  * published on the shell for the duration of execution so that function
  * definitions can copy their own body into a session-lifetime arena.
  */
+
+/*
+ * The narrative hook.
+ *
+ * Runs only for an interactive, non-plain session with a live shell. The event
+ * is immutable data; the persona returns borrowed text; the shell writes it to
+ * stderr and flushes before the prompt. stdout is never touched.
+ */
+static void wl_emit_narrative(struct wl_shell *shell, const char *cmdline,
+                              const char *cwd) {
+    struct wl_event event;
+    struct wl_line output;
+    char sanitized[200];
+    size_t at = 0;
+
+    if (!shell->interactive || shell->plain || !shell->running) {
+        return;
+    }
+    if (cmdline != NULL) {
+        while (cmdline[at] != '\0' && at + 1 < sizeof sanitized && at < 120) {
+            unsigned char c = (unsigned char)cmdline[at];
+
+            sanitized[at] = (c >= 32 && c < 127) ? (char)c : ' ';
+            at++;
+        }
+    }
+    sanitized[at] = '\0';
+
+    memset(&event, 0, sizeof event);
+    event.kind = WL_EV_POST_EXEC;
+    event.status = shell->last_status;
+    event.cmdline = sanitized;
+    event.argv0 = sanitized;
+    event.cwd = cwd;
+
+    if (wl_narrative_react(&shell->narrative, &event, &output) &&
+        output.len > 0) {
+        fwrite(output.text, 1, output.len, stderr);
+        fputc('\n', stderr);
+        fflush(stderr);
+    }
+}
 
 static bool wl_run_source(struct wl_shell *shell, struct wl_arena *arena,
                           const char *source, size_t length,
@@ -202,6 +245,7 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena,
             (void)wl_exec_program(shell, program);
             shell->source = NULL;
             shell->source_length = 0;
+            wl_emit_narrative(shell, line, cwd);
             wl_arena_reset(arena);
             used = 0;
             continuing = false;
@@ -322,6 +366,7 @@ int main(int argc, char **argv) {
                   isatty(STDIN_FILENO) && isatty(STDERR_FILENO);
 
     wl_shell_init(&shell, opts.plain, interactive);
+    wl_narrative_state_init(&shell.narrative);
     wl_arena_init(&arena);
     wl_set_positional(&shell, action, &opts, argv);
 

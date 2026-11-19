@@ -65,8 +65,8 @@ $(NARRATIVE_LIB): $(NARRATIVE_OBJS)
 	rm -f $@
 	$(AR) rcs $@ $(NARRATIVE_OBJS)
 
-$(UNIT_BIN): $(TEST_OBJS) $(SHELL_LIB)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(TEST_OBJS) $(SHELL_LIB) $(LDLIBS)
+$(UNIT_BIN): $(TEST_OBJS) $(SHELL_LIB) $(NARRATIVE_LIB)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(TEST_OBJS) $(SHELL_LIB) $(NARRATIVE_LIB) $(LDLIBS)
 
 # The probe links the narrative archive in full and refuses unresolved symbols:
 # the mechanical proof that the world cannot reach the shell.

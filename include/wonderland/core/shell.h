@@ -7,6 +7,7 @@
 
 #include "core/var.h"
 #include "jobs/job.h"
+#include "narrative/persona.h"
 
 /*
  * Session state.
@@ -32,7 +33,7 @@ struct wl_shell {
     /* stdin and stderr are terminals and no command string was given. */
     bool interactive;
 
-    /* Plain mode: narrative disabled. Unused until M3.5 by design. */
+    /* Plain mode: narrative disabled (D-0091). */
     bool plain;
 
     /* False once the `exit` builtin has run; the loop must stop. */
@@ -55,6 +56,12 @@ struct wl_shell {
 
     /* $! for the most recent background job, or 0 when there is none. */
     pid_t last_background_pid;
+
+    /*
+     * Narrative selection state. Owned by the shell, read and advanced only by
+     * libwl_narrative.a; the shell never inspects it.
+     */
+    struct wl_narrative_state narrative;
 
     /* Positional parameters for the current function call or script. */
     struct wl_frame *frame;

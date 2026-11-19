@@ -106,5 +106,6 @@ int main(void) {
     wl_suite_var();
     wl_suite_arith();
     wl_suite_history();
+    wl_suite_narrative();
     return wl_test_run() == 0 ? 0 : 1;
 }

@@ -11,6 +11,7 @@ void wl_suite_ast(void);
 void wl_suite_fuzz(void);
 void wl_suite_var(void);
 void wl_suite_history(void);
+void wl_suite_narrative(void);
 void wl_suite_arith(void);
 
 #endif /* WL_SUITES_H */

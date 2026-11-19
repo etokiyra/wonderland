@@ -167,6 +167,62 @@ static void wl_disable_echo(void) {
     }
 }
 
+/*
+ * A second, short session with --plain: a failing command must produce no
+ * narrative text at all.
+ */
+static void wl_plain_session(const char *binary) {
+    pid_t child;
+    int status = 0;
+    int prompts;
+    int waited;
+
+    wl_master = -1;
+    wl_output_len = 0;
+    wl_output[0] = '\0';
+    wl_failures = 0;
+
+    child = forkpty(&wl_master, NULL, NULL, NULL);
+    if (child < 0) {
+        wl_fail("plain: forkpty failed");
+        return;
+    }
+    if (child == 0) {
+        execl(binary, binary, "--plain", (char *)NULL);
+        _exit(127);
+    }
+
+    wl_disable_echo();
+    if (!wl_wait_for("wonderland:", 5000)) {
+        wl_fail("plain: prompt did not appear");
+    }
+    prompts = wl_count_of("\r\n\rwonderland:");
+    if (!wl_send("false\n")) {
+        wl_fail("plain: could not write");
+    }
+    if (!wl_wait_for_count("\r\n\rwonderland:", prompts + 1, 5000)) {
+        wl_fail("plain: no prompt after false");
+    }
+    if (strstr(wl_output, "refused you") != NULL ||
+        strstr(wl_output, "house is particular") != NULL) {
+        wl_fail("plain mode produced narrative text");
+    }
+    if (!wl_send("exit 0\n")) {
+        wl_fail("plain: could not write exit");
+    }
+    for (waited = 0; waited < 5000; waited += 50) {
+        pid_t reaped = waitpid(child, &status, WNOHANG);
+
+        if (reaped == child) {
+            break;
+        }
+        if (reaped < 0) {
+            break;
+        }
+        (void)wl_pump(50);
+    }
+}
+
 int main(int argc, char **argv) {
     const char *binary = (argc > 1) ? argv[1] : "build/wonderland";
     struct termios baseline;
@@ -368,6 +424,15 @@ int main(int argc, char **argv) {
         wl_fail("shell unusable after Ctrl-C");
     }
 
+    /* The narrative slice speaks on failure (first failure is deterministic). */
+    if (!wl_send("false\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after false") &&
+        !wl_wait_for("Something refused you", 2000)) {
+        wl_fail("narrative slice did not speak on failure");
+    }
+
     /*
      * At the prompt the editor owns the terminal and keeps it raw; while a
      * foreground command runs it must be back to the saved settings.
@@ -421,7 +486,15 @@ int main(int argc, char **argv) {
                 wl_output);
         return 1;
     }
+
+    wl_plain_session(binary);
+    if (wl_failures != 0) {
+        fprintf(stderr, "pty: FAIL (%d in the plain session)\n%s\n",
+                wl_failures, wl_output);
+        return 1;
+    }
     printf("pty: ok (prompt, command, cd, pipeline, here-document, jobs, "
-           "Ctrl-C, Ctrl-Z, bg, exit 4, termios unchanged)\n");
+           "Ctrl-C, Ctrl-Z, bg, narrative, plain, exit 4, termios "
+           "unchanged)\n");
     return 0;
 }
