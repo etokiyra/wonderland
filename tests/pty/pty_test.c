@@ -258,6 +258,54 @@ int main(int argc, char **argv) {
         wl_fail("here-document produced the wrong output");
     }
 
+    /* Background jobs: start, list, wait. */
+    if (!wl_send("sleep 2 &\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after starting a background job") &&
+        !wl_wait_for("[1]", 2000)) {
+        wl_fail("background job did not announce itself");
+    }
+    if (!wl_send("jobs\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after jobs") &&
+        !wl_wait_for("Running", 2000)) {
+        wl_fail("jobs did not list the background job");
+    }
+    if (!wl_send("wait\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    (void)wl_next_prompt(&prompts, "no prompt after wait");
+
+    /* Ctrl-Z stops a foreground job; bg resumes it in the background. */
+    if (!wl_send("sleep 0.5\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    (void)usleep(150000);
+    if (!wl_send("\032")) {
+        wl_fail("could not send Ctrl-Z");
+    }
+    if (!wl_wait_for("Stopped", 2000)) {
+        wl_fail("Ctrl-Z did not stop the job");
+    }
+    (void)wl_next_prompt(&prompts, "no prompt after Ctrl-Z");
+    if (!wl_send("jobs\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    if (wl_next_prompt(&prompts, "no prompt after jobs (stopped)") &&
+        !wl_wait_for("Stopped", 2000)) {
+        wl_fail("jobs did not list the stopped job");
+    }
+    if (!wl_send("bg\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    (void)wl_next_prompt(&prompts, "no prompt after bg");
+    if (!wl_send("wait\n")) {
+        wl_fail("could not write to the terminal");
+    }
+    (void)wl_next_prompt(&prompts, "no prompt after waiting for the resumed job");
+
     /* Ctrl-C at the prompt must return to a fresh prompt, not kill the shell. */
     if (!wl_send("abc")) {
         wl_fail("could not write to the terminal");
@@ -324,7 +372,7 @@ int main(int argc, char **argv) {
                 wl_output);
         return 1;
     }
-    printf("pty: ok (prompt, command, cd, Ctrl-C, Ctrl-Z no-op, exit 4, "
-           "termios unchanged)\n");
+    printf("pty: ok (prompt, command, cd, pipeline, here-document, jobs, "
+           "Ctrl-C, Ctrl-Z, bg, exit 4, termios unchanged)\n");
     return 0;
 }

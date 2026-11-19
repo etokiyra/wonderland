@@ -4,6 +4,7 @@
 #include "core/shell.h"
 #include "core/var.h"
 #include "exec/exec.h"
+#include "jobs/job.h"
 #include "jobs/signal.h"
 
 #include <errno.h>
@@ -409,6 +410,130 @@ static int wl_builtin_trap(struct wl_shell *sh, int argc, char **argv) {
     return status;
 }
 
+static struct wl_job *wl_resolve_job(struct wl_shell *sh, const char *arg) {
+    if (arg == NULL) {
+        return wl_job_current(&sh->jobs);
+    }
+    if (arg[0] == '%') {
+        if (arg[1] == '\0' || (arg[1] == '%' && arg[2] == '\0') ||
+            (arg[1] == '+' && arg[2] == '\0')) {
+            return wl_job_current(&sh->jobs);
+        }
+        if (arg[1] == '-' && arg[2] == '\0') {
+            return wl_job_previous(&sh->jobs);
+        }
+        if (arg[1] >= '0' && arg[1] <= '9') {
+            return wl_job_find_id(&sh->jobs, atoi(arg + 1));
+        }
+        return NULL;
+    }
+    {
+        char *end = NULL;
+        long pid = strtol(arg, &end, 10);
+
+        if (end != arg && *end == '\0') {
+            return wl_job_find_pid(&sh->jobs, (pid_t)pid);
+        }
+    }
+    return NULL;
+}
+
+static int wl_builtin_jobs(struct wl_shell *sh, int argc, char **argv) {
+    (void)argc;
+    (void)argv;
+
+    wl_job_notify(sh);
+    for (struct wl_job *job = sh->jobs.head; job != NULL; job = job->next) {
+        const char *state = "Running";
+
+        if (job->state == WL_JOB_STOPPED) {
+            state = "Stopped";
+        } else if (job->state == WL_JOB_DONE) {
+            state = "Done";
+        }
+        printf("[%d] %-9s %s\n", job->id, state, job->command);
+    }
+    return 0;
+}
+
+static int wl_builtin_fg(struct wl_shell *sh, int argc, char **argv) {
+    struct wl_job *job;
+
+    if (argc > 2) {
+        fprintf(stderr, "wonderland: fg: too many arguments\n");
+        return 1;
+    }
+    wl_job_notify(sh);
+    job = wl_resolve_job(sh, (argc == 2) ? argv[1] : NULL);
+    if (job == NULL) {
+        fprintf(stderr, "wonderland: fg: no such job\n");
+        return 1;
+    }
+    return wl_job_foreground(sh, job);
+}
+
+static int wl_builtin_bg(struct wl_shell *sh, int argc, char **argv) {
+    struct wl_job *job;
+
+    if (argc > 2) {
+        fprintf(stderr, "wonderland: bg: too many arguments\n");
+        return 1;
+    }
+    wl_job_notify(sh);
+    job = wl_resolve_job(sh, (argc == 2) ? argv[1] : NULL);
+    if (job == NULL) {
+        fprintf(stderr, "wonderland: bg: no such job\n");
+        return 1;
+    }
+    if (job->state == WL_JOB_DONE) {
+        fprintf(stderr, "wonderland: bg: job %d has finished\n", job->id);
+        return 1;
+    }
+    wl_job_background(sh, job);
+    return 0;
+}
+
+static int wl_builtin_wait(struct wl_shell *sh, int argc, char **argv) {
+    int status = 0;
+
+    wl_job_notify(sh);
+
+    if (argc == 1) {
+        while (sh->jobs.head != NULL) {
+            struct wl_job *job = sh->jobs.head;
+            bool stopped = false;
+
+            status = wl_job_wait(sh, job, &stopped);
+            if (stopped) {
+                job->state = WL_JOB_STOPPED;
+                job->notified = sh->interactive;
+                break;
+            }
+            wl_job_remove(&sh->jobs, job);
+        }
+        return status;
+    }
+
+    for (int index = 1; index < argc; index++) {
+        struct wl_job *job = wl_resolve_job(sh, argv[index]);
+        bool stopped = false;
+
+        if (job == NULL) {
+            fprintf(stderr, "wonderland: wait: %s: no such job\n", argv[index]);
+            status = 127;
+            continue;
+        }
+        status = wl_job_wait(sh, job, &stopped);
+        if (stopped) {
+            job->state = WL_JOB_STOPPED;
+            job->notified = sh->interactive;
+        } else {
+            wl_job_remove(&sh->jobs, job);
+        }
+    }
+    return status;
+}
+
 static int wl_builtin_colon(struct wl_shell *sh, int argc, char **argv) {
     (void)sh;
     (void)argc;
@@ -423,16 +548,20 @@ struct wl_builtin {
 
 static const struct wl_builtin wl_builtins[] = {
     {":", wl_builtin_colon},
+    {"bg", wl_builtin_bg},
     {"break", wl_builtin_break},
     {"cd", wl_builtin_cd},
     {"continue", wl_builtin_continue},
     {"exit", wl_builtin_exit},
     {"export", wl_builtin_export},
+    {"fg", wl_builtin_fg},
+    {"jobs", wl_builtin_jobs},
     {"return", wl_builtin_return},
     {"set", wl_builtin_set},
     {"shift", wl_builtin_shift},
     {"trap", wl_builtin_trap},
     {"unset", wl_builtin_unset},
+    {"wait", wl_builtin_wait},
 };
 
 bool wl_builtin_is(const char *name) {

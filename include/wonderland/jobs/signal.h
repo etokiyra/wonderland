@@ -23,8 +23,12 @@ void wl_signal_init_interactive(void);
 /* Installs a flag-only handler for a trapped signal (INT or TERM). */
 void wl_signal_install_trap(int signo);
 
-/* Restores default dispositions; call in a forked child before exec. */
-void wl_signal_reset_for_child(void);
+/*
+ * Restores dispositions in a forked child. With job_control, stopping and
+ * terminal-access signals return to default so Ctrl-Z and SIGTTIN work; without
+ * it they stay ignored (there is no job table to resume a stopped child).
+ */
+void wl_signal_reset_for_child(bool job_control);
 
 /* Returns true once if SIGINT arrived since the last call; clears the flag. */
 bool wl_signal_take_interrupt(void);

@@ -15,6 +15,7 @@
 #include "core/shell.h"
 #include "core/version.h"
 #include "exec/exec.h"
+#include "jobs/job.h"
 #include "jobs/signal.h"
 #include "line/read.h"
 #include "parse/parse.h"
@@ -97,6 +98,7 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena) {
         if (continuing) {
             fputs("> ", stderr);
         } else {
+            wl_job_notify(shell);
             (void)wl_prompt_format(prompt, sizeof prompt, shell->last_status,
                                    cwd, getenv("HOME"));
             fputs(prompt, stderr);
@@ -318,6 +320,7 @@ int main(int argc, char **argv) {
     if (interactive) {
         (void)wl_term_save(&term, STDIN_FILENO);
         wl_signal_init_interactive();
+        wl_job_init(&shell);
     }
 
     if (action == WL_OPT_COMMAND) {

@@ -6,6 +6,7 @@
 #include <sys/types.h>
 
 #include "core/var.h"
+#include "jobs/job.h"
 
 /*
  * Session state.
@@ -48,6 +49,12 @@ struct wl_shell {
 
     /* Shell variables and the exported environment. */
     struct wl_vars vars;
+
+    /* Background and stopped jobs. Empty until job control is exercised. */
+    struct wl_jobtab jobs;
+
+    /* $! for the most recent background job, or 0 when there is none. */
+    pid_t last_background_pid;
 
     /* Positional parameters for the current function call or script. */
     struct wl_frame *frame;

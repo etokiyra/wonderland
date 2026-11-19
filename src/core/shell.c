@@ -46,6 +46,8 @@ void wl_shell_init(struct wl_shell *sh, bool plain, bool interactive) {
     sh->tty_fd = interactive ? STDIN_FILENO : -1;
     sh->shell_pgid = getpgrp();
     wl_vars_init(&sh->vars, environ);
+    sh->jobs.head = NULL;
+    sh->jobs.next_id = 1;
 
     sh->frame = calloc(1, sizeof *sh->frame);
     if (sh->frame != NULL) {

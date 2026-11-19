@@ -610,30 +610,56 @@ static void wl_terminal_give(int tty_fd, pid_t pgid) {
     }
 }
 
-static int wl_wait_status(pid_t pid) {
-    int status = 0;
-    pid_t reaped;
+static int wl_wait_foreground(struct wl_shell *shell, pid_t pgid,
+                              pid_t *children, size_t count,
+                              const char *command) {
+    bool stopped = false;
+    int status = 1;
 
-    do {
-        reaped = waitpid(pid, &status, 0);
-    } while (reaped < 0 && errno == EINTR);
+    for (size_t index = 0; index < count; index++) {
+        int raw = 0;
+        pid_t reaped;
 
-    if (reaped < 0) {
-        fprintf(stderr, "wonderland: wait: %s\n", strerror(errno));
-        return 1;
+        do {
+            reaped = waitpid(children[index], &raw, WUNTRACED);
+        } while (reaped < 0 && errno == EINTR);
+        if (reaped < 0) {
+            continue;
+        }
+        if (WIFSTOPPED(raw)) {
+            stopped = true;
+            status = 128 + WSTOPSIG(raw);
+        } else if (WIFEXITED(raw)) {
+            status = WEXITSTATUS(raw);
+        } else if (WIFSIGNALED(raw)) {
+            status = 128 + WTERMSIG(raw);
+        }
     }
-    if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
+
+    wl_terminal_give(shell->tty_fd, shell->shell_pgid);
+
+    if (stopped) {
+        struct wl_job *job =
+            wl_job_create(&shell->jobs, pgid, command, false);
+
+        if (job != NULL) {
+            for (size_t index = 0; index < count; index++) {
+                (void)wl_job_add_proc(job, children[index]);
+            }
+            job->state = WL_JOB_STOPPED;
+            job->notified = shell->interactive;
+            if (shell->interactive) {
+                fprintf(stderr, "[%d]+ Stopped %s\n", job->id, command);
+            }
+        }
     }
-    if (WIFSIGNALED(status)) {
-        return 128 + WTERMSIG(status);
-    }
-    return 1;
+    return status;
 }
 
 static bool wl_run_external(struct wl_shell *shell, char *const argv[],
                             char **environment,
-                            const struct wl_prepared *prepared) {
+                            const struct wl_prepared *prepared,
+                            const char *command) {
     pid_t child = fork();
 
     if (child < 0) {
@@ -642,7 +668,7 @@ static bool wl_run_external(struct wl_shell *shell, char *const argv[],
         return false;
     }
     if (child == 0) {
-        wl_signal_reset_for_child();
+        wl_signal_reset_for_child(shell->interactive);
         if (shell->tty_fd >= 0) {
             (void)setpgid(0, 0);
         }
@@ -656,8 +682,8 @@ static bool wl_run_external(struct wl_shell *shell, char *const argv[],
         (void)setpgid(child, child);
         wl_terminal_give(shell->tty_fd, child);
     }
-    wl_shell_set_status(shell, wl_wait_status(child));
-    wl_terminal_give(shell->tty_fd, shell->shell_pgid);
+    wl_shell_set_status(shell,
+                        wl_wait_foreground(shell, child, &child, 1, command));
     return true;
 }
 
@@ -846,7 +872,11 @@ static bool wl_exec_simple(struct wl_shell *shell, const struct wl_node *node) {
             wl_shell_set_status(shell, 1);
             ok = false;
         } else {
-            ok = wl_run_external(shell, argv.items, environment, &prepared);
+            char *text = wl_job_command_text(shell, node);
+
+            ok = wl_run_external(shell, argv.items, environment, &prepared,
+                                 (text != NULL) ? text : "?");
+            free(text);
             wl_environ_free(environment);
         }
     }
@@ -978,7 +1008,7 @@ static bool wl_exec_pipeline(struct wl_shell *shell,
                 break;
             }
             if (child == 0) {
-                wl_signal_reset_for_child();
+                wl_signal_reset_for_child(shell->interactive);
                 if (shell->tty_fd >= 0) {
                     (void)setpgid(0, (first_child >= 0) ? first_child : 0);
                 }
@@ -1041,14 +1071,13 @@ static bool wl_exec_pipeline(struct wl_shell *shell,
             (void)close(previous_read);
         }
 
-        for (size_t index = 0; index < started; index++) {
-            int child_status = wl_wait_status(children[index]);
+        if (started > 0) {
+            char *text = wl_job_command_text(shell, node);
 
-            if (index + 1 == count) {
-                status = child_status;
-            }
+            status = wl_wait_foreground(shell, first_child, children, started,
+                                        (text != NULL) ? text : "?");
+            free(text);
         }
-        wl_terminal_give(shell->tty_fd, shell->shell_pgid);
         wl_shell_set_status(shell, status);
 
         for (size_t index = 0; index < count; index++) {
@@ -1301,7 +1330,7 @@ static bool wl_exec_subshell(struct wl_shell *shell,
         return false;
     }
     if (child == 0) {
-        wl_signal_reset_for_child();
+        wl_signal_reset_for_child(shell->interactive);
         if (!wl_apply_redirs(&prepared)) {
             _exit(1);
         }
@@ -1310,7 +1339,13 @@ static bool wl_exec_subshell(struct wl_shell *shell,
     }
 
     wl_prepared_free(&prepared);
-    status = wl_wait_status(child);
+    {
+        char *text = wl_job_command_text(shell, node);
+
+        status = wl_wait_foreground(shell, child, &child, 1,
+                                    (text != NULL) ? text : "?");
+        free(text);
+    }
     wl_shell_set_status(shell, status);
     return true;
 }
@@ -1353,6 +1388,51 @@ static bool wl_exec_andor(struct wl_shell *shell, const struct wl_node *node) {
     return true;
 }
 
+static bool wl_exec_background(struct wl_shell *shell,
+                               const struct wl_node *node) {
+    char *command = wl_job_command_text(shell, node);
+    pid_t child;
+
+    if (command == NULL) {
+        fprintf(stderr, "wonderland: out of memory\n");
+        wl_shell_set_status(shell, 1);
+        return false;
+    }
+
+    fflush(NULL);
+    child = fork();
+    if (child < 0) {
+        fprintf(stderr, "wonderland: fork: %s\n", strerror(errno));
+        free(command);
+        wl_shell_set_status(shell, 1);
+        return false;
+    }
+    if (child == 0) {
+        wl_signal_reset_for_child(true);
+        (void)setpgid(0, 0);
+        shell->tty_fd = -1;
+        shell->interactive = false;
+        (void)wl_exec_node(shell, node);
+        _exit(shell->last_status & 0xff);
+    }
+
+    (void)setpgid(child, child);
+    shell->last_background_pid = child;
+    {
+        struct wl_job *job =
+            wl_job_create(&shell->jobs, child, command, true);
+
+        if (job == NULL || !wl_job_add_proc(job, child)) {
+            fprintf(stderr, "wonderland: out of memory\n");
+        } else if (shell->interactive) {
+            fprintf(stderr, "[%d] %ld\n", job->id, (long)child);
+        }
+    }
+    free(command);
+    wl_shell_set_status(shell, 0);
+    return true;
+}
+
 static bool wl_exec_list(struct wl_shell *shell, const struct wl_node *node) {
     for (size_t index = 0; index < node->u.list.count; index++) {
         if (!shell->running || shell->returning || shell->break_count > 0 ||
@@ -1360,11 +1440,10 @@ static bool wl_exec_list(struct wl_shell *shell, const struct wl_node *node) {
             break;
         }
         if (node->u.list.async[index]) {
-            fprintf(stderr,
-                    "wonderland: a background job is not implemented yet "
-                    "(M4)\n");
-            wl_shell_set_status(shell, 2);
-            return false;
+            if (!wl_exec_background(shell, node->u.list.statements[index])) {
+                return false;
+            }
+            continue;
         }
         if (!wl_exec_node(shell, node->u.list.statements[index])) {
             return false;
@@ -1527,4 +1606,5 @@ void wl_exec_run_exit_trap(struct wl_shell *shell) {
 
 void wl_exec_shutdown(struct wl_shell *shell) {
     wl_exec_function_free(shell);
+    wl_jobtab_free(&shell->jobs);
 }

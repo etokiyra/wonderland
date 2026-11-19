@@ -61,22 +61,29 @@ void wl_signal_install_trap(int signo) {
     }
 }
 
-void wl_signal_reset_for_child(void) {
+void wl_signal_reset_for_child(bool job_control) {
     /*
      * SIGINT and SIGQUIT must be default: an inherited ignore would make the
      * child immune to Ctrl-C.
-     *
-     * SIGTSTP/SIGTTIN/SIGTTOU stay ignored until M4. Job control does not
-     * exist yet, so a stopped child could never be resumed: waitpid() without
-     * WUNTRACED would block forever and the terminal would look hung. Making
-     * Ctrl-Z a no-op is the honest behaviour (docs/DECISIONS.md D-0051).
      */
     (void)signal(SIGINT, SIG_DFL);
     (void)signal(SIGQUIT, SIG_DFL);
     (void)signal(SIGTERM, SIG_DFL);
-    (void)signal(SIGTSTP, SIG_IGN);
-    (void)signal(SIGTTIN, SIG_IGN);
-    (void)signal(SIGTTOU, SIG_IGN);
+
+    if (job_control) {
+        /* M4: a stopped child can be resumed and foregrounded. */
+        (void)signal(SIGTSTP, SIG_DFL);
+        (void)signal(SIGTTIN, SIG_DFL);
+        (void)signal(SIGTTOU, SIG_DFL);
+    } else {
+        /*
+         * No job table in this mode: a stopped child could never be resumed,
+         * so Ctrl-Z is a no-op instead of a hang (D-0051).
+         */
+        (void)signal(SIGTSTP, SIG_IGN);
+        (void)signal(SIGTTIN, SIG_IGN);
+        (void)signal(SIGTTOU, SIG_IGN);
+    }
 }
 
 bool wl_signal_take_interrupt(void) {

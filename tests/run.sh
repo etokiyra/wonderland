@@ -386,6 +386,28 @@ expect "shift removes positional parameters" stdout_is_line '2 b'
 run -c 'set -- one "two three"; printf "[%s]\n" "$@"'
 expect "quoted $@ expands to separate fields" stdout_is_text '[one]\n[two three]\n'
 
+run -c 'sleep 0.1 & pid=$!; test "$pid" -gt 0 && echo pid-ok; wait'
+expect "the recent background pid is available" stdout_is_line pid-ok
+
+run -c 'jobs'
+expect "jobs with an empty table is silent" stdout_empty
+
+run -c 'sleep 0.1 & wait; echo done'
+expect "background job and wait" stdout_is_text 'done\n'
+
+run -c 'sleep 0.5 & jobs; wait'
+expect "jobs lists a background job" stdout_has "Running"
+expect "jobs shows the command" stdout_has "sleep 0.5"
+
+run -c 'wait %9'
+expect "wait on an unknown job fails" status_is 127
+
+run -c 'fg'
+expect "fg with no jobs fails" status_is 1
+
+run -c 'bg'
+expect "bg with no jobs fails" status_is 1
+
 run -c 'X=outer; (X=inner; echo $X); echo $X'
 expect "subshell changes do not leak" stdout_is_text 'inner\nouter\n'
 

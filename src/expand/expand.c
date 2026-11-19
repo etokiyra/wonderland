@@ -303,6 +303,13 @@ static bool param_resolve(struct wl_expand_ctx *ctx,
         case '-':
             *is_set = true;
             return true;
+        case '!':
+            if (ctx->shell->last_background_pid > 0) {
+                *is_set = true;
+                return append_number(ctx, value,
+                                     (long long)ctx->shell->last_background_pid);
+            }
+            return true;
         case '@':
         case '*':
             /* Handled by the caller (field boundaries / joining). */
