@@ -269,6 +269,10 @@ opt-in death screen (`WONDERLAND_DEATH_SCREEN=1`), mirror prompt fragment
 (`WONDERLAND_MIRROR=1`), and Black Rabbit job_start/job_finish emission from
 job-table counters.
 
+Post-M7 presentation: the stock prompt is now Starship-compatible, with a
+left duration/jobs/user/character prompt and a right-aligned directory, git
+branch and clock (D-0111).
+
 Evidence: state round-trip, permissions, missing/corrupt/truncated/wrong-version
 files, and `clear_rest` in unit tests; pty coverage of `rest`/`respawn`,
 `pwd` restoration, persona persistence across sessions, cycle 1→2, corrupt

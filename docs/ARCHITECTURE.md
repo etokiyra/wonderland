@@ -290,6 +290,8 @@ and the narrative state only borrows it.
 | job start/finish counters and last command | `src/jobs/job.c`, `include/wonderland/jobs/job.h` |
 | Black Rabbit event emission | `src/main.c` (`wl_emit_job_starts`/`wl_emit_job_finishes`) |
 | death screen, mirror prompt fragment | `src/main.c` (`wl_emit_death_screen`, `wl_apply_mirror`) |
+| Starship-style left/right prompt, git/path/time segments | `src/term/prompt.c` |
+| right-prompt alignment, visible-width cursor math, OSC 133 mark | `src/line/editor.c`, `src/main.c` |
 | state tests | `tests/unit/test_state.c` |
 
 The state file is owned by the shell (`struct wl_state library`) and written

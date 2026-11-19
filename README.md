@@ -20,30 +20,33 @@ The ordering principle is not decorative:
 
 ## What works today
 
+The prompt below is abbreviated: the stock theme right-aligns the directory,
+git branch and clock, and prefixes finished commands with their duration.
+
 ```sh
 $ ./build/wonderland
-wonderland:~/Projects/wonderland $ greet() { printf 'hello %s\n' "$1"; }
-wonderland:~/Projects/wonderland $ greet world
+◎ greet() { printf 'hello %s\n' "$1"; }
+◎ greet world
 hello world
-wonderland:~/Projects/wonderland $ for f in a b c; do echo "$f"; done
+◎ for f in a b c; do echo "$f"; done
 a
 b
 c
-wonderland:~/Projects/wonderland $ if test -f /etc/passwd; then echo present; fi
+◎ if test -f /etc/passwd; then echo present; fi
 present
-wonderland:~/Projects/wonderland $ printf 'a\nb\n' | wc -l
+◎ printf 'a\nb\n' | wc -l
 2
-wonderland:~/Projects/wonderland $ cat <<EOF
+◎ cat <<EOF
 > the world remembers
 > EOF
 the world remembers
-wonderland:~/Projects/wonderland $ sleep 5 &
+◎ sleep 5 &
 [1] 4242
-wonderland:~/Projects/wonderland $ jobs
+◎ jobs
 [1] Running   sleep 5
-wonderland:~/Projects/wonderland $ Ctrl-Z
+◎ Ctrl-Z
 [1]+ Stopped sleep 5
-wonderland:~/Projects/wonderland $ bg
+◎ bg
 [1]+ sleep 5 &
 ```
 
@@ -66,10 +69,14 @@ wonderland:~/Projects/wonderland $ bg
   args` follows the POSIX `$0` convention.
 * Interactive editing: arrows, Home/End/Delete, Ctrl-A/E/B/F/K/U/W/L/C/D,
   history recall (Up/Down), tab completion, `WONDERLAND_PROMPT`.
-* Styled prompt: colour, Nerd Font icons, git branch, active-job count and
-  the previous command's duration. `WONDERLAND_COLOR`, `WONDERLAND_ICONS`,
-  `WONDERLAND_GIT` and `WONDERLAND_DURATION` toggle each part; `NO_COLOR`
-  and `TERM=dumb` are honoured, and a plain ASCII prompt remains available.
+* Starship-compatible stock prompt, modelled on the Caelestia rice: a
+  left prompt with `◄ duration`, `▶ jobs`, `⭘ user` and `◎`/`○`, and a
+  right-aligned `⌂ path`, git branch and `HH:MM` clock. `△` marks a repo
+  root; `main`/`master` are omitted like the reference config.
+  `WONDERLAND_PROMPT_STYLE=classic` restores the previous look;
+  `WONDERLAND_COLOR`, `WONDERLAND_ICONS`, `WONDERLAND_GIT` and
+  `WONDERLAND_DURATION` toggle parts, and `NO_COLOR`/`TERM=dumb`/an ASCII
+  locale fall back to plain text.
 * History persisted at `$XDG_STATE_HOME/wonderland/history` (0600, bounded).
 * `$'...'` ANSI-C quoting and a `read [-r]` builtin.
 * Builtins: `:`, `bg`, `break`, `cd`, `continue`, `exit`, `export`, `fg`,
@@ -107,7 +114,7 @@ candidates or quote paths with spaces.
 
 ```sh
 make                 # build/wonderland
-make test            # 106 unit cases + 154 CLI checks + pty + 14 differential cases
+make test            # 112 unit cases + 154 CLI checks + pty + 14 differential cases
 make diff            # differential cases only (dash + bash required)
 make asan            # the same under ASan/UBSan
 make memcheck        # unit suite under valgrind (if installed)

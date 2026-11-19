@@ -1364,3 +1364,51 @@ non-interactive sessions.
 Tests cover exact styled bytes, the ASCII fallback, visible-width math, and
 branch/detached-hash discovery from a temporary work tree; the pty suite
 continues to exercise cursor editing with the styled prompt.
+
+---
+
+## §18. Starship-compatible stock prompt
+
+### D-0111 — The default prompt mirrors the Caelestia Starship theme
+**2026-11-19 · accepted**
+
+The stock prompt is now the look of the reference
+`~/.config/starship.toml`, not the previous `wonderland:` shape:
+
+* Left: `◄ duration` (italic white, every command — `min_time = 0`),
+  `▶N` jobs (blue-italic arrow, white count), `⭘ user` when SSH or root
+  (bold italic bright-yellow), and the character `◎` (bold italic
+  bright-yellow) / `○` (italic purple).
+* Right: `⌂`-abbreviated directory truncated to two components (italic blue;
+  bold blue at a repo root, followed by `△`), the git branch (bright-blue
+  italic, `main`/`master` ignored, 11-character truncation with `⋯`), and
+  `HH:MM` (dimmed italic white).
+* Continuation: `▸▹ ` dimmed white.
+* A read-only directory appends `◈` in red.
+
+The editor gained a right-prompt buffer and aligns it to `TIOCGWINSZ` columns;
+the left prompt is restored afterwards. `wl_prompt_visible_width` (already
+escape/UTF-8 aware) now has a length-bounded variant so the buffer and cursor
+columns are measured correctly. If the right prompt would overlap the typed
+line, it is omitted for that render.
+
+`WONDERLAND_PROMPT_STYLE=classic` restores the previous colour/icon prompt.
+`WONDERLAND_COLOR`, `WONDERLAND_ICONS`, `WONDERLAND_GIT` and
+`WONDERLAND_DURATION` still apply; with icons off the stock prompt degrades to
+`420ms [1] !` / `/tmp 12:34`. `WONDERLAND_PROMPT` still overrides everything.
+
+A primary prompt is preceded by an OSC 133;A mark (the fish config uses the
+same sequence for terminal prompt jumps). It is written once per primary
+prompt, not per continuation or redraw, and the pty tests use it as their
+prompt boundary. This supersedes the `wonderland:`-prefix shape in D-0110.
+
+Deliberate omissions from full Starship parity: git metrics, language
+version modules, nix/container/cloud modules, battery and SSH local IP. They
+need subprocesses or platform queries and would contradict the prompt's
+no-fork rule; they can be added later behind explicit modules. The directory,
+branch, jobs, duration, user, character and clock are the stock set.
+
+Tests: exact left/right strings for the styled prompt, failure ring, ASCII
+fallback, repo-root triangle, user segment, branch truncation, repo-root
+detection, visible-width math, and pty editing/job coverage with both the
+Starship and `classic` prompts.
