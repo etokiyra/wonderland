@@ -48,7 +48,13 @@ DEPS := $(SHELL_OBJS:.o=.d) $(NARRATIVE_OBJS:.o=.d) \
 .DEFAULT_GOAL := all
 .DELETE_ON_ERROR:
 
-.PHONY: all test unit check-isolation asan clean memcheck lint diff
+.PHONY: all test unit check-isolation asan clean memcheck lint diff install uninstall
+
+# User-local by default: no root, no system registration, no /etc/shells entry
+# (amendment 4). Override with PREFIX=/usr/local when packaging.
+PREFIX  ?= $(HOME)/.local
+BINDIR  := $(PREFIX)/bin
+DESTDIR ?=
 
 all: $(BIN)
 
@@ -132,5 +138,14 @@ asan:
 
 clean:
 	rm -rf build
+
+install: all
+	@mkdir -p "$(DESTDIR)$(BINDIR)"
+	install -m 0755 "$(BIN)" "$(DESTDIR)$(BINDIR)/wonderland"
+	@printf 'installed %s\n' "$(DESTDIR)$(BINDIR)/wonderland"
+	@printf 'make sure %s is on PATH; it is a normal shell command, not a login shell\n' "$(BINDIR)"
+
+uninstall:
+	rm -f "$(DESTDIR)$(BINDIR)/wonderland"
 
 -include $(DEPS)

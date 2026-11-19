@@ -222,7 +222,7 @@ candidates:
 `--version` prints:
 
 ```
-wonderland 0.0.0 (bootstrap; no shell implemented)
+wonderland 0.5.0 (M5; narrative slice)
 ```
 
 and nothing else. Feature claims live in the docs, keyed to tests.
