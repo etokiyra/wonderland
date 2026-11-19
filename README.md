@@ -66,6 +66,10 @@ wonderland:~/Projects/wonderland $ bg
   args` follows the POSIX `$0` convention.
 * Interactive editing: arrows, Home/End/Delete, Ctrl-A/E/B/F/K/U/W/L/C/D,
   history recall (Up/Down), tab completion, `WONDERLAND_PROMPT`.
+* Styled prompt: colour, Nerd Font icons, git branch, active-job count and
+  the previous command's duration. `WONDERLAND_COLOR`, `WONDERLAND_ICONS`,
+  `WONDERLAND_GIT` and `WONDERLAND_DURATION` toggle each part; `NO_COLOR`
+  and `TERM=dumb` are honoured, and a plain ASCII prompt remains available.
 * History persisted at `$XDG_STATE_HOME/wonderland/history` (0600, bounded).
 * `$'...'` ANSI-C quoting and a `read [-r]` builtin.
 * Builtins: `:`, `bg`, `break`, `cd`, `continue`, `exit`, `export`, `fg`,
@@ -103,7 +107,7 @@ candidates or quote paths with spaces.
 
 ```sh
 make                 # build/wonderland
-make test            # 101 unit cases + 154 CLI checks + pty + 14 differential cases
+make test            # 106 unit cases + 154 CLI checks + pty + 14 differential cases
 make diff            # differential cases only (dash + bash required)
 make asan            # the same under ASan/UBSan
 make memcheck        # unit suite under valgrind (if installed)

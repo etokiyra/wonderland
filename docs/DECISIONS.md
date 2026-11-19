@@ -1331,3 +1331,36 @@ Known M7 limits: no config file yet (`WONDERLAND_*` flags), no narrative
 recent/cooldown persistence, no per-line weights, no full-screen death
 presentation, and mirror mode is prompt-only. The four-week dogfooding gate
 is still human work and is not claimed.
+
+---
+
+## §17. Prompt presentation
+
+### D-0110 — The prompt is styled, optional, and escape-aware
+**2026-11-19 · accepted**
+
+The interactive prompt gains colour, Nerd Font icons, the current git branch,
+the number of active jobs, and the previous command's duration. It always
+begins with the literal `wonderland:` so terminal tests and scripts can find
+it without parsing escapes; everything after that is presentation.
+
+Defaults: colour and icons are on for an interactive UTF-8 terminal, except
+`TERM=dumb` and `NO_COLOR`; git and duration are on. Explicit
+`WONDERLAND_COLOR`, `WONDERLAND_ICONS`, `WONDERLAND_GIT` and
+`WONDERLAND_DURATION` values win, with `0`, `off` and `never` disabling a
+part. With icons off the prompt falls back to ASCII words (`ok`, `(branch)`,
+`[2 jobs]`, `$`); with colour off it is byte-compatible with the old
+`wonderland:<path> [status] $ ` shape.
+
+The line editor computes `prompt_width` with `wl_prompt_visible_width`, which
+skips CSI/SGR sequences and counts one column per UTF-8 code point. This is
+required: the old `strlen` width would have placed the cursor over the prompt.
+Git discovery only reads `.git/HEAD` (or a `gitdir:` pointer), walking up at
+most 64 directories; it never forks `git` or reads the index. Duration is
+measured with `CLOCK_MONOTONIC` around execution and shown only above 100 ms.
+None of this touches command output, diagnostics, exit statuses, or
+non-interactive sessions.
+
+Tests cover exact styled bytes, the ASCII fallback, visible-width math, and
+branch/detached-hash discovery from a temporary work tree; the pty suite
+continues to exercise cursor editing with the styled prompt.

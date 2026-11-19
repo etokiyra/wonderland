@@ -33,9 +33,11 @@ Kafka, Cioran) with original lines, selection with frequency, cooldowns and
 budget, `possess`, placeholder rendering, and Black Rabbit job lines. Alice's
 Library stores a versioned, checksummed cycle/persona/checkpoint file
 atomically; `rest`/`respawn` restore cwd, a whitelisted variable set and the
-persona only; `go-to-alice` shares `exit`. Plain mode loads no packs and never
-reads or writes state. Missing: the rest of the cast, Bash extensions,
-`local`, `exec`, `kill`/`disown`, a config file. It is not installed in
+persona only; `go-to-alice` shares `exit`. The prompt is styled (colour,
+Nerd Font icons, git branch, job count, command duration) with
+ASCII/`NO_COLOR` fallbacks. Plain mode loads no packs and never reads or
+writes state. Missing: the rest of the cast, Bash extensions, `local`, `exec`,
+`kill`/`disown`, a config file. It is not installed in
 `/etc/shells` and must not be until the dogfooding gate is met. Content packs
 are normative: see `docs/CONTENT_FORMAT.md` and `packs/core/`; never mark
 unverified text as canonical.
@@ -68,7 +70,7 @@ the world feel better.
 
 ```sh
 make                  # build build/wonderland
-make test             # unit + CLI + pty + isolation + differential tests (101/154/14)
+make test             # unit + CLI + pty + isolation + differential tests (106/154/14)
 make diff             # differential cases only (needs dash and bash)
 make asan             # rebuild with ASan/UBSan and run the same suite
 make memcheck         # unit suite under valgrind (developer tool)
