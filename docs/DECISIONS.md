@@ -569,6 +569,93 @@ error-path accident. Recorded as a known limitation in the README. Scripts
 with a shebang, including `#!/bin/bash`, already run under the kernel's chosen
 interpreter.
 
+### D-0052 — Spans are byte offsets; line/column is computed on demand
+**2026-11-19 · accepted**
+
+`struct wl_span` is `{ start, end }` in bytes. Line and column are derived by
+`wl_diag_locate()` only when a diagnostic is printed. This supersedes the
+sketch in `docs/GRAMMAR.md` §4, which carried `line`/`col` inside the span:
+keeping them accurate through recursive sub-parses would need a line map per
+source, and the only consumer is the error path. Columns remain byte-based
+(D-0034).
+
+### D-0053 — The lexer builds word parts; the parser resolves substitutions
+**2026-11-19 · accepted**
+
+Quoting is scanned exactly once, by the lexer, into `wl_word_part` records;
+there is no second scanner that could disagree with the first. The lexer has
+no parser dependency: `$(...)` and backticks record their inner source, and
+the parser resolves those sources into sub-programs in a post-pass over the
+finished tree (`wl_p_resolve_node`). Command-substitution nesting is bounded
+by the same depth limit as grammar nesting (D-0058 notes the diagnostic
+position caveat).
+
+### D-0054 — Here-document bodies are stored raw, with an expansion flag
+**2026-11-19 · accepted**
+
+Bodies are read lazily when the newline that ends the command line is
+*consumed*, before the next token is scanned; that ordering is what keeps body
+text from being lexed as commands. The body is stored as bytes plus
+`expand` (delimiter unquoted) and `strip_tabs` (`<<-`); it is **not** split
+into word parts at parse time. M3 expands it as a single word when the
+redirection is applied. This is simpler than the part-list sketch in
+`docs/GRAMMAR.md` §5 and avoids freezing an expansion representation before
+the expander exists.
+
+### D-0055 — `;;` is a token; Bash case terminators are not accepted
+**2026-11-19 · accepted**
+
+The lexer emits `WL_TOK_DSEMI` for `;;` so a `case` body can stop at an item
+boundary. `;&` and `;;&` are not tokenised; they parse as `;` followed by an
+error, with a diagnostic. Case patterns are ordinary words, so `a|b)` and
+`*)` need no special lexing. This keeps the case grammar free of Bash
+fallthrough semantics that do not exist yet.
+
+### D-0056 — Input units, continuation, and the syntax-error status
+**2026-11-19 · accepted**
+
+* `-c` and stdin are parsed as **one** source unit. `-c` is capped at 1 MiB
+  (`WL_SOURCE_MAX`); stdin is capped at the same size while being read.
+* Interactive input is one **logical line**, capped at 4095 bytes
+  (`WL_LINE_MAX`). Two things trigger continuation: the parser reports
+  `incomplete`, or the reader sees an odd number of trailing backslashes
+  (a backslash-escaped newline, which the parser cannot see because it
+  removes the escape before tokenizing). The continuation prompt is `> `.
+  The whole logical line is re-parsed after each new physical line; the
+  arena is reset between attempts, so the cost is bounded and garbage-free.
+* A syntax error sets `$?` to 2, as `sh` does, and leaves the shell running.
+  This replaces the M1 roadmap wording ("previous status intact"), which was
+  aspirational and inconsistent with every real shell.
+* EOF during a continuation reports `unexpected end of file` with status 2.
+
+### D-0057 — M2 execution surface: syntax yes, process model no
+**2026-11-19 · accepted**
+
+`src/exec/m1_split.c` is deleted. Execution now consumes the AST and supports
+simple commands with literal words, `;` lists, `&&`, `||` and `!`. Everything
+else that the parser accepts is **refused with status 2 and one diagnostic**:
+expansion, redirection, variable assignment, pipelines with more than one
+command, background `&`, and compound commands. Refusal is per logical line;
+the shell continues. This makes the parser shippable without pretending that
+the process model exists, and keeps the M3 diff about execution rather than
+about parsing.
+
+### D-0058 — Names are validated; `${#x}` and `${x#p}` stay distinct
+**2026-11-19 · accepted**
+
+`for` names and function names must be `[A-Za-z_][A-Za-z0-9_]*`; anything else
+is a syntax error. In `${...}`, a leading `#` before a name means length
+(`${#x}`), while `#`/`##`/`%`/`%%` after the name mean trimming; a `:` before
+`-/=/ ?/+` is recorded, and `:` before a trim operator is rejected. Bash-only
+forms such as `${!x}` are syntax errors, not silently mis-parsed: an
+unrecognised character before `}` reports `expected '}' to close ${...}`.
+
+Diagnostics inside a command substitution currently carry offsets relative to
+the substitution's own source, not the outer line, because the sub-parse sees
+a copied string. The message is correct; the caret may point at the wrong
+column. Fixing that needs a source-offset map and is deferred until the
+interactive experience is polished (M5).
+
 ### D-0051 — Ctrl-Z is a no-op until M4; non-interactive children share the group
 **2026-11-19 · accepted**
 

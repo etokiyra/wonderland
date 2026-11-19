@@ -40,22 +40,29 @@ dash.
 Legend: **planned** = in a milestone, **tested** = has a passing differential
 case, **no** = out of scope.
 
-### 3.0 Implemented at M1 (2026-11-19), with its own tests
+### 3.0 Implemented at M1/M2 (2026-11-19), with its own tests
 
 This is deliberately *not* called supported in the POSIX sense: there is no
-differential case yet, and the argument layer is the M1 whitespace splitter.
+differential case yet, so these are regression tests against our own
+specification, not against another shell.
 
 | Behaviour | Evidence |
 |-----------|----------|
-| Simple commands with whitespace-separated words | `tests/run.sh`, `tests/unit/test_split.c` |
+| Simple commands with whitespace-separated words | `tests/run.sh`, `tests/unit/test_ast.c` |
+| Quoting: `'...'`, `"..."`, backslash, `""` surviving as an argument | `tests/unit/test_ast.c`, `tests/run.sh` |
+| `;` lists, `&&`, `\|\|`, `!` | `tests/unit/test_ast.c`, `tests/run.sh` |
+| Comments and `\<newline>` continuation | `tests/unit/test_ast.c`, `tests/run.sh`, pty |
 | `$PATH` search, direct paths, 127 vs 126 | `tests/unit/test_path.c`, `tests/run.sh` |
 | Exit status propagation, 128+N for signals | `tests/run.sh` |
 | `cd` (HOME, `-`, PWD/OLDPWD) and `exit` (0–255) | `tests/unit/test_builtins.c`, `tests/run.sh` |
-| `-c`, newline-separated lines, stdin, `-` | `tests/run.sh` |
+| `-c`, stdin, `-` | `tests/run.sh` |
 | Prompt shape, `$?` display, HOME abbreviation | `tests/unit/test_prompt.c`, `tests/pty/pty_test.c` |
 | Ctrl-C at the prompt; unchanged termios | `tests/pty/pty_test.c` |
 | Ctrl-Z is a no-op, does not wedge the shell (D-0051) | `tests/pty/pty_test.c` |
-| Quoting, expansion, pipes, redirection, `;` | **not implemented** |
+| Grammar: pipelines, redirections, assignments, compounds, functions, here-documents, `${...}` operators | parsed and dumped (`tests/unit/test_ast.c`); **not executed** |
+| Syntax diagnostics with line, column and caret | `tests/unit/test_ast.c`, `tests/run.sh` |
+| Expansion, field splitting, globbing | **not implemented** (M3) |
+| Executing pipes, redirections, compounds, assignments, background jobs | **refused with status 2** (D-0057) |
 
 ### 3.1 POSIX surface
 

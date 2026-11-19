@@ -154,7 +154,6 @@ Ordering rules that make the contract true:
   job (nothing is written while a program owns the screen).
 
 ### 4.1 Implemented at M1
-
 | Step | File |
 |------|------|
 | option handling, `-c`, stdin, the loop | `src/main.c`, `src/core/opts.c` |
@@ -170,6 +169,23 @@ Ordering rules that make the contract true:
 Everything else in this document is still a contract, not a description. The
 prompt is written to stderr; no narrative output exists yet, so stdout purity
 is currently a property of the code structure rather than of a runtime gate.
+
+### 4.2 Implemented at M2
+
+| Step | File |
+|------|------|
+| byte buffer, diagnostics with carets | `src/core/buf.c`, `src/core/diag.c` |
+| per-parse arena, span/AST/word types | `src/ast/arena.c`, `src/ast/ast.c` |
+| stable AST dump | `src/ast/dump.c` |
+| tokens, operators, here-document bodies | `src/lex/lex.c` |
+| word parts, expansions syntax, quoting | `src/lex/word.c` |
+| grammar, here-document queue, cmdsub sub-programs | `src/parse/parse.c` |
+| continuation input units and diagnostics | `src/main.c` |
+| AST-driven execution for `;`, `&&`, `\|\|`, `!`, literal words | `src/exec/exec.c` |
+
+The M1 whitespace splitter is gone. Execution refuses constructs the parser
+accepts but the process model cannot yet run (D-0057), so the two layers can
+advance independently without lying about either.
 
 ## 5. Core data model
 

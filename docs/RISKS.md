@@ -31,10 +31,11 @@ fails CI, not review.
 **Likelihood: high. Impact: scripts break silently, the worst kind of bug.**
 Quoted/unquoted boundaries, `$@`, IFS, empty fields, glob-vs-literal are the
 classic shell correctness swamp.
-*Mitigations:* the grammar keeps quote information per word part from the
-start (`docs/GRAMMAR.md` §2.3); the §10 matrix is written before the code; the
-differential harness compared against bash and dash; no "string splitting
-shortcut" is allowed to survive M2.
+*Mitigations:* the lexer records the quoted flag per word part and never
+re-scans text (D-0053); parse-level quoting cases (`a|b`, `a\|b`, `'a|b'`,
+`"a|b"`, `a""b`, quoted `$@`, empty arguments) are tested; the differential
+harness is the M3 deliverable that turns this into evidence rather than
+intent. The remaining exposure is the expander, which does not exist yet.
 *Early warning:* tests that only check "roughly the right output"; any code
 that re-tokenises a string in the expander.
 

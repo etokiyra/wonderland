@@ -60,16 +60,41 @@ Exit criteria as met:
 
 Scope: tokens with spans and quote maps, quoting, word parts, grammar from
 `docs/GRAMMAR.md`, AST, diagnostics with carets, here-document parsing,
-`wl_ast_dump()` for tests. No execution changes: the M1 path keeps working.
+`wl_ast_dump()` for tests.
 
-Exit criteria:
+Status: **done** (2026-11-19). Evidence: 65 unit cases (229 assertions,
+including 10,000 deterministic fuzz inputs), 77 CLI checks, and a pty test
+covering a trailed-backslash continuation and an open-quote continuation.
+`make asan`, `make memcheck` and `make lint` are clean, with gcc and clang.
 
-* The quoting matrix in `docs/GRAMMAR.md` §10 passes as unit tests.
-* `wl_ast_dump()` output is stable and reviewed for 30 representative lines.
-* Depth limits produce diagnostics, not crashes (fuzz with 10k random inputs
-  under ASan).
-* Parse error in interactive mode discards the line and returns to the prompt
-  with the previous status intact.
+Delivered: `src/lex/{lex,word}.c`, `src/parse/parse.c`, `src/ast/{arena,ast,dump}.c`,
+`src/core/{buf,diag}.c`, caret diagnostics, `WL_TOK_DSEMI`, here-document
+bodies, command-substitution sub-programs, and interactive continuation with
+a `> ` prompt. `src/exec/m1_split.c` is deleted; `src/exec/exec.c` now walks
+the AST for the constructs listed in D-0057.
+
+Deviations from the plan, all recorded:
+
+* Spans are byte offsets; line/column is computed when a diagnostic prints
+  (D-0052), not stored per node.
+* Here-document bodies are stored raw with an `expand` flag and expanded in
+  M3, rather than parsed into word parts now (D-0054).
+* `;&`/`;;&` are rejected; `;;` is the only case terminator (D-0055).
+* A syntax error sets `$?` to 2 (D-0056), replacing the "previous status"
+  wording above.
+* Execution support is intentionally narrow: `;`, `&&`, `||`, `!`, and
+  literal words; everything else refuses with status 2 (D-0057).
+
+Exit criteria as met:
+
+* The quoting matrix in `docs/GRAMMAR.md` §10 is covered at parse level
+  (`a|b`, `a\|b`, `'a|b'`, `"a|b"`, `a""b`, quoted vs unquoted parameters,
+  `$@` quoting, empty quoted arguments).
+* `wl_ast_dump()` output is fixed and asserted, including one whole-tree dump.
+* Depth limits produce diagnostics, not crashes; 10,000 fuzz inputs run under
+  ASan on every `make test`.
+* A parse error in interactive mode prints a caret diagnostic, sets `$?` to 2,
+  discards the line, and returns to the prompt.
 
 ## M3 — Execution
 
@@ -185,25 +210,41 @@ from bash. Bugs found here outrank new features. The gate to `chsh` is in
 ## Milestone 1 as implemented
 
 Delivered: `src/term/` snapshot/restore (+ `atexit`), `src/term/prompt.c`,
-`src/jobs/signal.c`, `src/line/read.c`, `src/exec/{path,exec,m1_split}.c`,
+`src/jobs/signal.c`, `src/line/read.c`, `src/exec/{path,exec}.c`,
 `src/core/{shell,opts}.c`, `src/builtins/builtins.c` (`cd`, `exit`), the loop
 and `-c`/stdin handling in `src/main.c`, and tests at three levels (unit, CLI,
-pty). The `pty` test drives a real terminal, not a mock.
+pty). The `pty` test drives a real terminal, not a mock. (`m1_split.c` existed
+here and was deleted in M2.)
 
-## Recommended scope for the Milestone 2 prompt
+## Recommended scope for the Milestone 3 prompt
 
-> Implement Milestone 2 only, per `docs/ROADMAP.md`, `docs/GRAMMAR.md` and
-> `AGENTS.md`: (1) tokens with byte spans and a per-byte quote map, including
-> the quoting matrix in `docs/GRAMMAR.md` §10; (2) word parts (`literal`,
-> `param`, `cmdsub`, `arith`, `tilde`) that preserve quoted vs unquoted
-> content, with `""` surviving as an empty quoted part; (3) the grammar's
-> lists/pipelines/simple commands/reserved words/redirections/here-doc queue,
-> with the documented recursion and size limits; (4) AST nodes in the per-line
-> arena, `wl_ast_dump()` with a stable format; (5) diagnostics with
-> `file:line:col`, a source excerpt and a caret, one error per line;
-> (6) delete `src/exec/m1_split.c` and its header, and make execution consume
-> the AST for simple commands only — no expansion, no pipes, no redirections
-> yet beyond parsing them and refusing cleanly; (7) parser, lexer and dump
-> tests plus an ASan fuzz pass over random inputs; (8) update
-> `docs/DECISIONS.md`, `docs/COMPATIBILITY.md` and report known limitations.
-> Do not implement expansion, job control, history, or narrative code.
+M3 is large enough that it should be delivered in two contiguous parts, not
+one commit:
+
+**M3a — words become arguments and processes.**
+
+> Implement M3a per `docs/ROADMAP.md` and `docs/GRAMMAR.md`: (1) a variable
+> store in `core` (shell variables plus the exported environment, `PWD`,
+> `OLDPWD`, `IFS`, `$?`, `$$`, `$#`, `$@`, `$*`), with `export`, `unset` and
+> assignment prefixes; (2) the expander: parameter expansion including the
+> `${...}` operators already parsed, tilde, quote removal, field splitting on
+> `IFS`, and globbing via `glob(3)` with literal fallback on no match; (3)
+> command substitution `$(...)` executed in a subshell with trailing newlines
+> stripped, and a minimal arithmetic evaluator for `$((...))`; (4)
+> redirections in the child, left to right, including `2>&1`, `>&-` and
+> here-documents (expanding unquoted bodies); (5) pipelines with one process
+> per stage, the terminal on the first stage's group, `$?` from the last, and
+> `SIGPIPE` handled; (6) `set -e/-u/-x/-n` where the semantics are tested
+> against dash, not assumed; (7) differential tests for every expansion and
+> redirection case in `docs/COMPATIBILITY.md`, plus ASan/valgrind runs.
+> Do not implement job control, `trap`, history, or narrative code.
+
+**M3b — control flow and functions.**
+
+> Implement M3b per `docs/ROADMAP.md`: execute `if`, `while`, `until`, `for`,
+> `case`, `{ }`, `( )`, and function definitions/calls on the existing AST,
+> plus `return`, `break`, `continue`, `shift`, and `trap` on `EXIT`/`INT`/
+> `TERM`. Every construct gets a test in `tests/cases/`, including subshell
+> variable isolation and function positional parameters.
+
+The vertical narrative slice (M3.5) follows M3b.

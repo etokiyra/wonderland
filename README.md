@@ -3,9 +3,11 @@
 A Unix shell in C17 for Linux, with an optional narrative layer: a dark
 fairy-tale world inhabited by personas who react to what happens in the shell.
 
-**Status: Milestone 1. The shell runs commands, but it is not yet a daily
-driver.** There is no quoting, no `;`, no pipes, no redirections, no job
-control and no history. Do not put it in `/etc/shells` and do not `chsh` to it.
+**Status: Milestone 2. The parser is real; the execution model is still
+minimal.** Quoting, `;`, `&&`, `||`, `!` and comments work. Expansion,
+redirection, pipelines, compound execution and background jobs are parsed but
+**refused with status 2**. No job control, no history. Do not put it in
+`/etc/shells` and do not `chsh` to it.
 
 The ordering principle is not decorative:
 
@@ -15,14 +17,16 @@ The ordering principle is not decorative:
 
 ```sh
 $ ./build/wonderland
-wonderland:~/Projects/wonderland $ echo hello
-hello
-wonderland:~/Projects/wonderland $ cd /tmp
-wonderland:/tmp $ pwd
-/tmp
-wonderland:/tmp $ nosuchcommand
-wonderland: nosuchcommand: command not found
-wonderland:/tmp [127] $ exit 3
+wonderland:~/Projects/wonderland $ printf '[%s]\n' "a b"
+[a b]
+wonderland:~/Projects/wonderland $ echo one; echo two
+one
+two
+wonderland:~/Projects/wonderland $ false && echo no; echo yes
+yes
+wonderland:~/Projects/wonderland $ echo $HOME
+wonderland: expansion is not implemented yet (M3)
+wonderland:~/Projects/wonderland [2] $ exit 3
 ```
 
 * Interactive prompt on stderr, with `$?` shown when nonzero.
@@ -30,8 +34,14 @@ wonderland:/tmp [127] $ exit 3
   mapping, foreground process-group handoff, Ctrl-C at the prompt returns to a
   fresh prompt instead of killing the shell.
 * Builtins: `cd` (HOME, `-`, PWD/OLDPWD) and `exit` (0–255).
-* `-c STRING` (newline-separated lines), commands from stdin, and `-` for
-  explicit stdin. All three are non-interactive and therefore plain.
+* A real lexer and parser: single/double quotes, backslash escapes, empty
+  quoted arguments, comments, line continuation, `;`, `&&`, `||`, `!`,
+  assignments, redirections, here-documents, pipelines, `if`/`for`/`while`/
+  `case`/functions, `${...}` operators — all parsed into an AST with caret
+  diagnostics, and all tested. Only the literal-word subset executes.
+* `-c STRING`, commands from stdin, and `-` for explicit stdin. All three are
+  non-interactive and therefore plain. Multi-line `-c` and here-documents are
+  parsed as one source unit.
 * `--plain` and `WONDERLAND_PLAIN=1`; the narrative layer is not built yet, so
   plain mode currently has nothing to suppress, and the tests assert that
   stdout stays clean anyway.
@@ -40,25 +50,26 @@ wonderland:/tmp [127] $ exit 3
 
 | Missing | Arrives |
 |---|---|
-| Quotes, escapes, expansion (`$x`, `$(...)`), globbing | M2–M3 |
-| `;`, `&&`, `\|\|`, pipes, redirections, here-documents | M2–M3 |
+| Expansion (`$x`, `$(...)`, `$((...))`), splitting, globbing, tilde | M3 |
+| Executing redirections, here-documents, pipes | M3 |
+| Executing `if`/`for`/`while`/`case`, functions, assignments | M3 |
+| Background jobs (`cmd &`) | M3/M4 |
 | Script files (`wonderland file.sh`) — refused with status 3 | M3 |
 | Job control (`jobs`, `fg`, `bg`, Ctrl-Z), history, line editing | M4–M5 |
 | `ENOEXEC` fallback for shebang-less scripts | M8 |
 | Personas, packs, `possess`, `rest`, `go-to-alice` | M3.5, M6–M7 |
 
-Consequences today: `echo "a b"` passes the quotes through literally, `a;b` is
-one word, and `ls | wc` is an argument list, not a pipeline. Ctrl-Z does
-nothing to a running command (it is ignored, tested, and documented in
+Consequences today: `echo $HOME` is a clean refusal, `echo "a b"` is one
+argument, `a;b` is two commands, and `ls | wc` parses but is refused. Ctrl-Z
+does nothing to a running command (it is ignored, tested, and documented in
 `docs/DECISIONS.md` D-0051) so that the shell can never wedge on a stopped
-child. The M1 splitter is marked `M1-ONLY` and is deleted in M2
-(`docs/DECISIONS.md` D-0037).
+child.
 
 ## Build and test
 
 ```sh
 make                 # build/wonderland
-make test            # 48 unit cases + 54 CLI checks + a pty session test
+make test            # 65 unit cases + 77 CLI checks + a pty session test
 make asan            # the same under ASan/UBSan
 make memcheck        # unit suite under valgrind (if installed)
 make lint            # cppcheck over src/ (if installed)
@@ -70,14 +81,14 @@ tools: `valgrind`, `cppcheck`, `dash` (for the future differential suite).
 ## Layout
 
 ```
-src/core       shell state, options, diagnostics, arenas
+src/core       shell state, options, buffers, diagnostics
 src/term       terminal snapshot/restore, prompt formatting
 src/line       canonical-mode reader (the M5 editor replaces it)
-src/lex        lexer (M2)
-src/parse      parser (M2)
-src/ast        AST and dump (M2)
+src/lex        lexer, word parts and quoting
+src/parse      parser, here-document queue, diagnostics
+src/ast        arena, AST nodes, stable dump
 src/expand     expansion, splitting, globbing (M3)
-src/exec       PATH resolution, fork/exec, builtin dispatch
+src/exec       PATH resolution, fork/exec, AST execution, builtin dispatch
 src/jobs       signal dispositions, later the job table
 src/builtins   cd, exit, later possess/rest/go-to-alice
 src/narrative  personas and events (isolated library, M3.5+)

@@ -34,6 +34,7 @@ and case patterns, which it hands to the lexer as sub-sources.
 | `TOK_AND_IF` | `&&` | |
 | `TOK_OR_IF` | `\|\|` | |
 | `TOK_SEMI` | `;` | |
+| `TOK_DSEMI` | `;;` | case item terminator only; `;&`/`;;&` are not tokens |
 | `TOK_AMP` | `&` | |
 | `TOK_NEWLINE` | `\n` | |
 | `TOK_LPAREN`, `TOK_RPAREN` | `(` `)` | |
@@ -206,23 +207,29 @@ struct wl_redir {
     int fd;                 /* -1 = default for the operator */
     enum wl_redir_op op;
     struct wl_word *target; /* filename or fd number or here-doc delimiter */
-    struct wl_heredoc *hd;  /* non-NULL only for << and <<- */
-    bool expand_target;     /* << with unquoted delimiter */
+    struct wl_heredoc *heredoc; /* non-NULL only for << and <<- */
+    struct wl_span span;
 };
 
 struct wl_heredoc {
-    struct wl_str delimiter;  /* after quote removal */
-    bool strip_tabs;          /* <<- */
-    bool quoted_delimiter;    /* any quoting in the delimiter: body is literal */
-    struct wl_word body;      /* one LITERAL part, or expansion parts */
+    struct wl_str body;   /* raw bytes after the newline, newlines kept */
+    bool expand;          /* delimiter was unquoted */
+    bool strip_tabs;      /* <<- */
 };
 
-struct wl_span { size_t start, end; int line, col; };
+/* Implemented form (docs/DECISIONS.md D-0052). */
+struct wl_span { size_t start, end; };
 ```
 
-* Spans are **byte offsets plus line/column**, unlike PercyLang's
-  `Position{Line, Column}` (see `docs/audits/percylang-reuse.md`). Offsets are
-  required for snippet rendering and for slicing here-doc bodies.
+* Spans are **byte offsets only**. Line and column are computed by
+  `wl_diag_locate()` when a diagnostic is printed, because that is the only
+  consumer and keeping them accurate through nested sub-parses would require a
+  line map per source (D-0052). Offsets are what snippet rendering and
+  here-document slicing need.
+* Here-document bodies are stored raw with an `expand` flag, not as word parts
+  (D-0054). M3 expands the body as a single word when the redirection is
+  applied; a quoted delimiter means no expansion and `<<-` strips leading tabs
+  at collect time.
 * Nodes are arena-allocated (`ast/arena.h`) and freed only when the whole line
   is discarded. There is no per-node `free`.
 * The AST is pure syntax. Assignment-vs-word decisions, reserved-word
@@ -239,14 +246,15 @@ struct wl_span { size_t start, end; int line, col; };
   delimiter (after tab stripping for `<<-`), delimiter line excluded.
 * Quoting any part of the delimiter (`<<"EOF"`, `<<\EOF`, `<<'EOF'`) makes the
   body literal: no expansion, no backslash processing.
-* Unquoted delimiters produce expansion parts, but the body is never field
-  split or globbed — it is one string.
-* End of input before the delimiter is a diagnostic (`unexpected end of file
-  while looking for 'EOF'`), exit status 2 in scripts, line discarded
-  interactively.
-* Interactive multi-line collection is a Milestone 2/5 interface problem: the
-  parser must ask a *line source* for more input instead of assuming a
-  contiguous buffer. The parser takes a `struct wl_source` with `more()`.
+* Unquoted delimiters mark the body `expand`; the body is stored as raw bytes
+  and expanded as a single word when the redirection is applied (M3), never
+  field split or globbed.
+* End of input before the delimiter is a diagnostic marked `incomplete`
+  (`here-document delimited by end of file`), so the interactive loop asks for
+  more input and a script reports a syntax error with status 2.
+* Interactive collection: the parser reports `incomplete` and the loop
+  re-parses the appended logical line. There is no streaming source object in
+  M2; the whole logical line lives in a fixed 4095-byte buffer (D-0056).
 
 ## 6. Redirections
 
@@ -277,10 +285,10 @@ exits 1 without running the command.
 | Limit | Value | Rationale |
 |-------|-------|-----------|
 | Nesting depth (parse recursion) | 200 | recursive descent must not overflow the stack on adversarial input |
-| `$( )` nesting | 50 | same, plus sane diagnostics |
-| Word parts per word | 4096 | guards pathological concatenation |
-| Line length (interactive) | 64 KiB | beyond this, refuse and beep rather than die |
-| Here-doc body | 8 MiB | policy bound; documented |
+| `$( )` / `${...}` nesting | 64 | the lexer's word-depth guard; the parser's nesting limit also applies |
+| Interactive logical line | 4095 bytes | beyond this, refuse with a diagnostic and a fresh prompt |
+| `-c` / stdin source | 1 MiB | read/parse cap (`WL_SOURCE_MAX`); refused before parsing |
+| Command substitution source | bounded by the line/source cap | no separate limit in M2 |
 
 All limits produce a diagnostic with a span, never a crash and never a silent
 truncation. Exceeding a limit aborts the line (interactive) or the script
