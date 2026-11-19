@@ -39,7 +39,7 @@ enum wl_line_status wl_line_read(int fd, char *buf, size_t cap, size_t *len) {
     for (;;) {
         ssize_t count;
 
-        if (wl_signal_take_interrupt()) {
+        if (wl_signal_interrupt_pending() || wl_signal_term_pending()) {
             return WL_LINE_INTERRUPTED;
         }
         if (used + 1 >= cap) {
@@ -50,7 +50,7 @@ enum wl_line_status wl_line_read(int fd, char *buf, size_t cap, size_t *len) {
         count = read(fd, buf + used, cap - 1 - used);
         if (count < 0) {
             if (errno == EINTR) {
-                continue;
+                return WL_LINE_INTERRUPTED;
             }
             return WL_LINE_ERROR;
         }

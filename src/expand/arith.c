@@ -113,6 +113,26 @@ static bool parse_primary(struct parser *parser, long long *out) {
 
     if (parser->source[parser->position] == '$') {
         parser->position++;
+        if (parser->position < parser->length &&
+            isdigit((unsigned char)parser->source[parser->position])) {
+            long long index = 0;
+            const struct wl_frame *frame = parser->shell->frame;
+
+            while (parser->position < parser->length &&
+                   isdigit((unsigned char)parser->source[parser->position])) {
+                index = index * 10 + (parser->source[parser->position] - '0');
+                if (index > 9999) {
+                    index = 9999;
+                }
+                parser->position++;
+            }
+            if (frame != NULL && (size_t)index <= frame->count) {
+                *out = strtoll(frame->args[index - 1], NULL, 0);
+            } else {
+                *out = 0;
+            }
+            return true;
+        }
     }
 
     if (isalpha((unsigned char)parser->source[parser->position]) ||

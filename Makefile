@@ -48,7 +48,7 @@ DEPS := $(SHELL_OBJS:.o=.d) $(NARRATIVE_OBJS:.o=.d) \
 .DEFAULT_GOAL := all
 .DELETE_ON_ERROR:
 
-.PHONY: all test unit check-isolation asan clean memcheck lint
+.PHONY: all test unit check-isolation asan clean memcheck lint diff
 
 all: $(BIN)
 
@@ -107,6 +107,11 @@ test: all unit check-isolation $(PTY_BIN)
 	@WL_BIN="$(BIN)" sh tests/run.sh
 	@echo "== pty tests =="
 	@$(PTY_BIN) $(BIN)
+	@echo "== differential tests (dash, bash) =="
+	@WL_BIN="$(BIN)" sh tests/diff.sh
+
+diff: all
+	@WL_BIN="$(BIN)" sh tests/diff.sh
 
 # Optional developer checks; both skip nothing silently: if the tool is
 # installed, its failure is our failure.

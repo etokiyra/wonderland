@@ -604,8 +604,18 @@ static bool wl_scan_braced(struct wl_scanner *scan, bool quoted) {
             return wl_scan_fail(scan, false, "out of memory");
         }
     } else if (c >= '0' && c <= '9') {
-        part.u.param.index = c - '0';
-        wl_lex_skip(lexer, 1);
+        int index = 0;
+
+        while (!wl_lex_done(lexer) &&
+               wl_lex_peek_at(lexer, 0) >= '0' &&
+               wl_lex_peek_at(lexer, 0) <= '9') {
+            index = index * 10 + (wl_lex_peek_at(lexer, 0) - '0');
+            if (index > 9999) {
+                index = 9999;
+            }
+            wl_lex_skip(lexer, 1);
+        }
+        part.u.param.index = index;
     } else if (wl_is_special(c)) {
         part.u.param.special = c;
         wl_lex_skip(lexer, 1);

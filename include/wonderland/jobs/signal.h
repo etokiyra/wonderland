@@ -20,10 +20,22 @@
 /* Installs the interactive dispositions. Only call when interactive. */
 void wl_signal_init_interactive(void);
 
+/* Installs a flag-only handler for a trapped signal (INT or TERM). */
+void wl_signal_install_trap(int signo);
+
 /* Restores default dispositions; call in a forked child before exec. */
 void wl_signal_reset_for_child(void);
 
 /* Returns true once if SIGINT arrived since the last call; clears the flag. */
 bool wl_signal_take_interrupt(void);
+
+/* True while a SIGINT is pending, without clearing it. */
+bool wl_signal_interrupt_pending(void);
+
+/* Returns true once if SIGTERM arrived since the last call; clears the flag. */
+bool wl_signal_take_term(void);
+
+/* True while a SIGTERM is pending, without clearing it. */
+bool wl_signal_term_pending(void);
 
 #endif /* WL_JOBS_SIGNAL_H */

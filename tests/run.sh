@@ -90,9 +90,15 @@ expect "unknown option exits 2" status_is 2
 expect "unknown option writes nothing to stdout" stdout_empty
 expect "unknown option names the option" stderr_has '--bogus'
 
-run script.sh
-expect "script operand exits 3 (not implemented until M3)" status_is 3
-expect "script operand writes nothing to stdout" stdout_empty
+script=$tmp/script.sh
+printf 'echo "script:$1:$2"\nexit 4\n' >"$script"
+run "$script" one two
+expect "script files execute with arguments" stdout_is_line 'script:one:two'
+expect "script exit status is honoured" status_is 4
+
+run "$tmp/does-not-exist.sh"
+expect "missing script exits 127" status_is 127
+expect "missing script explains itself" stderr_has "No such file"
 
 # --- -c --------------------------------------------------------------------
 
@@ -342,7 +348,82 @@ run -c "echo $tmp/nope-*.txt"
 expect "unmatched glob stays literal" stdout_is_line "$tmp/nope-*.txt"
 
 run -c 'if true; then echo y; fi'
-expect "compound command is refused in M2" status_is 2
+expect "if executes its then branch" stdout_is_line y
+
+run -c 'if false; then echo y; elif true; then echo elif; else echo n; fi'
+expect "elif branch" stdout_is_line elif
+
+run -c 'for i in a b c; do echo $i; done'
+expect "for loop" stdout_is_text 'a\nb\nc\n'
+
+run -c 'i=0; while test $i -lt 2; do echo $i; i=$((i+1)); done'
+expect "while loop" stdout_is_text '0\n1\n'
+
+run -c 'i=0; until test $i -ge 2; do echo $i; i=$((i+1)); done'
+expect "until loop" stdout_is_text '0\n1\n'
+
+run -c 'for i in 1 2 3; do if test $i = 2; then continue; fi; echo $i; done'
+expect "continue skips an iteration" stdout_is_text '1\n3\n'
+
+run -c 'for i in 1 2 3; do test $i = 2 && break; echo $i; done'
+expect "break leaves the loop" stdout_is_line 1
+
+run -c 'case hello in h*) echo match;; *) echo no;; esac'
+expect "case matches a pattern" stdout_is_line match
+
+run -c 'case x in a|b) echo ab;; esac; echo after'
+expect "case with no match continues" stdout_is_line after
+
+run -c 'f() { echo "f:$1"; }; f arg'
+expect "function call with an argument" stdout_is_line 'f:arg'
+
+run -c 'f() { return 7; }; f; echo $?'
+expect "return sets the function status" stdout_is_line 7
+
+run -c 'set -- a b c; shift; echo "$# $1"'
+expect "shift removes positional parameters" stdout_is_line '2 b'
+
+run -c 'set -- one "two three"; printf "[%s]\n" "$@"'
+expect "quoted $@ expands to separate fields" stdout_is_text '[one]\n[two three]\n'
+
+run -c 'X=outer; (X=inner; echo $X); echo $X'
+expect "subshell changes do not leak" stdout_is_text 'inner\nouter\n'
+
+run -c '{ X=group; }; echo $X'
+expect "brace group changes persist" stdout_is_line group
+
+run -c 'trap "echo bye" EXIT; echo hi'
+expect "EXIT trap runs at shutdown" stdout_is_text 'hi\nbye\n'
+
+run -c "trap 'echo term-trap' TERM; sh -c 'kill -TERM \$PPID'; echo after"
+expect "TERM trap runs" stdout_is_text 'term-trap\nafter\n'
+
+run -c "trap 'echo int-trap' INT; sh -c 'kill -INT \$PPID'; echo after"
+expect "INT trap runs" stdout_is_text 'int-trap\nafter\n'
+
+run -c 'trap "echo t" EXIT; exit 5'
+expect "EXIT trap does not change the exit status" status_is 5
+expect "EXIT trap still runs" stdout_is_line t
+
+run -c 'set -n; echo suppressed'
+expect "set -n suppresses execution" stdout_empty
+
+run -c 'f() { echo hi; }; f | cat'
+expect "functions work in pipelines" stdout_is_line hi
+
+run -c '{ echo grouped; } | cat'
+expect "groups work in pipelines" stdout_is_line grouped
+
+run -c 'set -e; false; echo unreachable'
+expect "set -e stops execution" status_is 1
+expect "set -e produces no further output" stdout_empty
+
+run -c 'set -u; echo $MISSING'
+expect "set -u rejects unset variables" status_is 1
+expect "set -u names the variable" stderr_has "MISSING"
+
+run -c 'set -x; echo traced' 2>"$tmp/err"
+expect "set -x traces commands" stderr_has "+ echo traced"
 
 run -c 'echo "unterminated'
 expect "unterminated quote is a syntax error" status_is 2

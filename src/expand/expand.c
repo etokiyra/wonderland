@@ -264,29 +264,74 @@ static bool append_number(struct wl_expand_ctx *ctx, struct wl_buf *out,
     return wl_buf_append_str(out, buffer);
 }
 
-static bool special_param(struct wl_expand_ctx *ctx,
-                          const struct wl_param *param, struct wl_buf *out,
-                          bool *is_set) {
-    *is_set = true;
+static bool param_resolve(struct wl_expand_ctx *ctx,
+                          const struct wl_param *param, struct wl_buf *value,
+                          bool *is_set, char *display, size_t display_size) {
+    const struct wl_frame *frame = ctx->shell->frame;
 
-    switch (param->special) {
-    case '?':
-        return append_number(ctx, out, ctx->shell->last_status);
-    case '$':
-        return append_number(ctx, out, (long long)getpid());
-    case '#': /* positional parameters: none yet */
-        return wl_buf_append_str(out, "0");
-    case '@':
-    case '*':
-    case '-':
-        return true;
-    case '!':
-        *is_set = false;
-        return true;
-    default:
-        *is_set = false;
+    *is_set = false;
+    display[0] = '\0';
+
+    if (param->name.len > 0) {
+        const char *text = wl_var_get(&ctx->shell->vars, param->name.data,
+                                      param->name.len);
+
+        if (text != NULL) {
+            *is_set = true;
+            if (!wl_buf_append_str(value, text)) {
+                return fail(ctx, "out of memory");
+            }
+        }
+        (void)snprintf(display, display_size, "%.*s", (int)param->name.len,
+                       param->name.data);
         return true;
     }
+
+    if (param->special != 0) {
+        (void)snprintf(display, display_size, "%c", param->special);
+        switch (param->special) {
+        case '?':
+            *is_set = true;
+            return append_number(ctx, value, ctx->shell->last_status);
+        case '$':
+            *is_set = true;
+            return append_number(ctx, value, (long long)getpid());
+        case '#':
+            *is_set = true;
+            return append_number(ctx, value,
+                                 (long long)((frame != NULL) ? frame->count : 0));
+        case '-':
+            *is_set = true;
+            return true;
+        case '@':
+        case '*':
+            /* Handled by the caller (field boundaries / joining). */
+            *is_set = true;
+            return true;
+        default:
+            break;
+        }
+        /* `$!` and anything unrecognised stay unset. */
+        return true;
+    }
+
+    if (param->index >= 0) {
+        (void)snprintf(display, display_size, "%d", param->index);
+        if (param->index == 0) {
+            *is_set = true;
+            return wl_buf_append_str(
+                value, (frame != NULL && frame->name0 != NULL) ? frame->name0
+                                                               : "wonderland");
+        }
+        if (frame != NULL && (size_t)param->index <= frame->count) {
+            *is_set = true;
+            return wl_buf_append_str(value,
+                                     frame->args[param->index - 1]);
+        }
+        return true;
+    }
+
+    return true;
 }
 
 static bool ebuf_text(struct wl_expand_ctx *ctx, const struct wl_ebuf *buffer,
@@ -311,6 +356,33 @@ static bool overlay(struct wl_expand_ctx *ctx, struct wl_ebuf *out,
     return true;
 }
 
+/* `$@` / `$*` when they are not the whole word: join, then split if unquoted. */
+static bool expand_args_joined(struct wl_expand_ctx *ctx,
+                               const struct wl_param *param,
+                               bool outer_quoted, struct wl_ebuf *out) {
+    const struct wl_frame *frame = ctx->shell->frame;
+    size_t count = (frame != NULL) ? frame->count : 0;
+    const char *ifs = wl_var_get(&ctx->shell->vars, "IFS", 3);
+    char separator = ' ';
+
+    if (outer_quoted && ifs != NULL && ifs[0] != '\0') {
+        separator = ifs[0];
+    }
+    for (size_t index = 0; index < count; index++) {
+        if (index > 0 &&
+            !ebuf_push(ctx, out, separator, outer_quoted, !outer_quoted)) {
+            return false;
+        }
+        if (!ebuf_push_text(ctx, out, frame->args[index],
+                            strlen(frame->args[index]), outer_quoted,
+                            !outer_quoted)) {
+            return false;
+        }
+    }
+    (void)param;
+    return true;
+}
+
 /*
  * Appends one parameter expansion to the word buffer.
  *
@@ -326,47 +398,30 @@ static bool expand_param_to(struct wl_expand_ctx *ctx,
     struct wl_ebuf temp;
     bool is_set = false;
     bool is_null;
-    const char *text = NULL;
     size_t text_len = 0;
     char display[128];
     bool ok = true;
 
+    if (param->special == '@' || param->special == '*') {
+        return expand_args_joined(ctx, param, outer_quoted, out);
+    }
+
     wl_buf_init(&value);
     ebuf_init(&temp);
 
-    if (param->name.len > 0) {
-        text = wl_var_get(&ctx->shell->vars, param->name.data,
-                          param->name.len);
-        if (text != NULL) {
-            is_set = true;
-            if (!wl_buf_append_str(&value, text)) {
-                wl_buf_free(&value);
-                ebuf_free(&temp);
-                return fail(ctx, "out of memory");
-            }
-            text_len = strlen(text);
-        }
-        (void)snprintf(display, sizeof display, "%.*s", (int)param->name.len,
-                       param->name.data);
-    } else if (param->special != 0) {
-        if (!special_param(ctx, param, &value, &is_set)) {
-            wl_buf_free(&value);
-            ebuf_free(&temp);
-            return false;
-        }
-        text_len = value.len;
-        (void)snprintf(display, sizeof display, "%c", param->special);
-    } else if (param->index == 0) {
-        is_set = true;
-        if (!wl_buf_append_str(&value, "wonderland")) {
-            wl_buf_free(&value);
-            ebuf_free(&temp);
-            return fail(ctx, "out of memory");
-        }
-        text_len = value.len;
-        (void)snprintf(display, sizeof display, "0");
-    } else {
-        (void)snprintf(display, sizeof display, "%d", param->index);
+    if (!param_resolve(ctx, param, &value, &is_set, display,
+                       sizeof display)) {
+        wl_buf_free(&value);
+        ebuf_free(&temp);
+        return false;
+    }
+    text_len = value.len;
+
+    if (!is_set && ctx->shell->nounset && param->op == WL_PARAM_NONE &&
+        (param->name.len > 0 || param->index > 0 || param->special == '!')) {
+        wl_buf_free(&value);
+        ebuf_free(&temp);
+        return fail(ctx, "%s: parameter not set", display);
     }
 
     is_null = !is_set || value.len == 0;
@@ -681,6 +736,28 @@ static bool expand_word_fields(struct wl_expand_ctx *ctx,
     struct wl_ebuf bytes;
     const char *ifs;
     bool ok = true;
+
+    /*
+     * `"$@"` as the whole word is the one case that produces several fields
+     * per word. Adjacent text (`pre"$@"`) joins instead; recorded as a
+     * limitation in D-0069.
+     */
+    if (word->count == 1 && word->parts[0].kind == WL_WP_PARAM &&
+        word->parts[0].quoted &&
+        word->parts[0].u.param.special == '@') {
+        const struct wl_frame *frame = ctx->shell->frame;
+        size_t count = (frame != NULL) ? frame->count : 0;
+
+        for (size_t index = 0; index < count; index++) {
+            char *copy = strdup(frame->args[index]);
+
+            if (copy == NULL || !wl_argv_push(out, copy)) {
+                free(copy);
+                return fail(ctx, "out of memory");
+            }
+        }
+        return true;
+    }
 
     ebuf_init(&bytes);
     if (!expand_word_bytes(ctx, word, &bytes, depth)) {

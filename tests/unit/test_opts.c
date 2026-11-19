@@ -83,20 +83,24 @@ WL_TEST(stdin_operand_reads_stdin_and_is_plain) {
     WL_ASSERT(opts.plain);
 }
 
-WL_TEST(multiple_script_operands_are_refused) {
-    char *argv[] = {"wonderland", "a.sh", "b.sh"};
+WL_TEST(extra_operands_after_a_script_become_arguments) {
+    char *argv[] = {"wonderland", "a.sh", "b.sh", "c"};
     struct wl_options opts;
 
-    WL_ASSERT_INT_EQ(wl_opts_parse(3, argv, &opts), WL_OPT_USAGE_ERROR);
-    WL_ASSERT(contains(opts.usage_error, "multiple"));
+    WL_ASSERT_INT_EQ(wl_opts_parse(4, argv, &opts), WL_OPT_SCRIPT);
+    WL_ASSERT_STR_EQ(opts.script, "a.sh");
+    WL_ASSERT_INT_EQ(opts.arg_count, 2);
+    WL_ASSERT_INT_EQ(opts.arg_start, 2);
 }
 
-WL_TEST(command_and_script_together_are_refused) {
-    char *argv[] = {"wonderland", "-c", "true", "a.sh"};
+WL_TEST(arguments_after_c_become_positional_parameters) {
+    char *argv[] = {"wonderland", "-c", "true", "name", "value"};
     struct wl_options opts;
 
-    WL_ASSERT_INT_EQ(wl_opts_parse(4, argv, &opts), WL_OPT_USAGE_ERROR);
-    WL_ASSERT(contains(opts.usage_error, "-c"));
+    WL_ASSERT_INT_EQ(wl_opts_parse(5, argv, &opts), WL_OPT_COMMAND);
+    WL_ASSERT_STR_EQ(opts.command, "true");
+    WL_ASSERT_INT_EQ(opts.arg_count, 2);
+    WL_ASSERT_INT_EQ(opts.arg_start, 3);
 }
 
 WL_TEST(unknown_option_is_a_usage_error) {
@@ -166,10 +170,10 @@ void wl_suite_opts(void) {
                      script_operand_is_a_script_and_plain);
     wl_test_register("opts: - reads stdin and is plain",
                      stdin_operand_reads_stdin_and_is_plain);
-    wl_test_register("opts: multiple script operands refused",
-                     multiple_script_operands_are_refused);
-    wl_test_register("opts: -c and a script cannot be combined",
-                     command_and_script_together_are_refused);
+    wl_test_register("opts: script operands become arguments",
+                     extra_operands_after_a_script_become_arguments);
+    wl_test_register("opts: -c operands become positional parameters",
+                     arguments_after_c_become_positional_parameters);
     wl_test_register("opts: unknown option is a usage error",
                      unknown_option_is_a_usage_error);
     wl_test_register("opts: unknown short option is a usage error",

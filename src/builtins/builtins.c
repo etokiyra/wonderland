@@ -3,19 +3,21 @@
 #include "core/limits.h"
 #include "core/shell.h"
 #include "core/var.h"
+#include "exec/exec.h"
+#include "jobs/signal.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 /*
- * Builtins, M3a: cd, exit, export, unset.
- *
- * They own their state changes (cwd, PWD/OLDPWD, variables, loop termination)
- * and return a status like any command. No narrative, no aliases; those are
- * M6/M7 and belong in the same functions when they arrive.
+ * Builtins. They own their state changes (cwd, variables, positional
+ * parameters, control-flow flags, traps, loop termination) and return a
+ * status like any command. No narrative, no aliases; those are M6/M7 and
+ * belong in the same functions when they arrive.
  */
 
 static bool wl_is_name(const char *text, size_t length) {
@@ -34,6 +36,26 @@ static bool wl_is_name(const char *text, size_t length) {
             return false;
         }
     }
+    return true;
+}
+
+static bool wl_parse_small_number(const char *text, int minimum, int maximum,
+                                  int *out) {
+    char *end = NULL;
+    long value;
+
+    if (text == NULL || text[0] == '\0') {
+        return false;
+    }
+    errno = 0;
+    value = strtol(text, &end, 10);
+    if (errno != 0 || end == text || *end != '\0') {
+        return false;
+    }
+    if (value < minimum || value > maximum) {
+        return false;
+    }
+    *out = (int)value;
     return true;
 }
 
@@ -95,26 +117,6 @@ static int wl_builtin_cd(struct wl_shell *sh, int argc, char **argv) {
     return 0;
 }
 
-/* POSIX: decimal, 0..255, nothing else. Returns false on any other form. */
-static bool wl_parse_exit_status(const char *text, int *status) {
-    char *end = NULL;
-    long value;
-
-    if (text == NULL || text[0] == '\0') {
-        return false;
-    }
-    errno = 0;
-    value = strtol(text, &end, 10);
-    if (errno != 0 || end == text || *end != '\0') {
-        return false;
-    }
-    if (value < 0 || value > 255) {
-        return false;
-    }
-    *status = (int)value;
-    return true;
-}
-
 static int wl_builtin_exit(struct wl_shell *sh, int argc, char **argv) {
     int status = sh->last_status;
 
@@ -123,7 +125,7 @@ static int wl_builtin_exit(struct wl_shell *sh, int argc, char **argv) {
         return 1; /* do not exit: the argument list is ambiguous */
     }
 
-    if (argc == 2 && !wl_parse_exit_status(argv[1], &status)) {
+    if (argc == 2 && !wl_parse_small_number(argv[1], 0, 255, &status)) {
         fprintf(stderr, "wonderland: exit: %s: numeric argument required\n",
                 argv[1]);
         wl_shell_stop(sh, 2);
@@ -188,15 +190,248 @@ static int wl_builtin_unset(struct wl_shell *sh, int argc, char **argv) {
     return status;
 }
 
+static int wl_builtin_shift(struct wl_shell *sh, int argc, char **argv) {
+    int count = 1;
+    size_t available = (sh->frame != NULL) ? sh->frame->count : 0;
+
+    if (argc > 2) {
+        fprintf(stderr, "wonderland: shift: too many arguments\n");
+        return 1;
+    }
+    if (argc == 2 &&
+        (!wl_parse_small_number(argv[1], 0, 1000000, &count))) {
+        fprintf(stderr, "wonderland: shift: %s: numeric argument required\n",
+                argv[1]);
+        return 1;
+    }
+    if ((size_t)count > available) {
+        fprintf(stderr, "wonderland: shift: cannot shift %d (only %zu)\n",
+                count, available);
+        return 1;
+    }
+    wl_shell_shift(sh, (size_t)count);
+    return 0;
+}
+
+static int wl_builtin_set(struct wl_shell *sh, int argc, char **argv) {
+    int index = 1;
+
+    if (argc == 1) {
+        for (struct wl_var *variable = wl_vars_first(&sh->vars);
+             variable != NULL; variable = variable->next) {
+            printf("%s=%s\n", variable->name, variable->value);
+        }
+        return 0;
+    }
+
+    while (index < argc) {
+        const char *argument = argv[index];
+
+        if (strcmp(argument, "--") == 0) {
+            index++;
+            if (!wl_shell_set_args(sh, sh->frame->name0, &argv[index],
+                                   (size_t)(argc - index))) {
+                fprintf(stderr, "wonderland: set: out of memory\n");
+                return 1;
+            }
+            return 0;
+        }
+        if (argument[0] == '-' || argument[0] == '+') {
+            bool enable = argument[0] == '-';
+
+            if (argument[1] == '\0') {
+                fprintf(stderr, "wonderland: set: use -- for positional "
+                                "parameters\n");
+                return 2;
+            }
+            for (const char *flag = argument + 1; *flag != '\0'; flag++) {
+                switch (*flag) {
+                case 'e':
+                    sh->errexit = enable;
+                    break;
+                case 'u':
+                    sh->nounset = enable;
+                    break;
+                case 'x':
+                    sh->xtrace = enable;
+                    break;
+                case 'n':
+                    sh->noexec = enable;
+                    break;
+                case 'f':
+                    /* noglob: accepted but not implemented until M8. */
+                    break;
+                default:
+                    fprintf(stderr,
+                            "wonderland: set: unsupported option -%c\n",
+                            *flag);
+                    return 2;
+                }
+            }
+            index++;
+            continue;
+        }
+        fprintf(stderr, "wonderland: set: use -- before positional "
+                        "parameters\n");
+        return 2;
+    }
+    return 0;
+}
+
+static int wl_builtin_return(struct wl_shell *sh, int argc, char **argv) {
+    int status = sh->last_status;
+
+    if (argc > 2) {
+        fprintf(stderr, "wonderland: return: too many arguments\n");
+        return 1;
+    }
+    if (argc == 2 && !wl_parse_small_number(argv[1], 0, 255, &status)) {
+        fprintf(stderr, "wonderland: return: %s: numeric argument required\n",
+                argv[1]);
+        return 2;
+    }
+    if (sh->function_depth == 0) {
+        fprintf(stderr, "wonderland: return: not in a function\n");
+        return 1;
+    }
+    sh->returning = true;
+    sh->return_status = status;
+    return status;
+}
+
+static int wl_builtin_break(struct wl_shell *sh, int argc, char **argv) {
+    int count = 1;
+
+    if (argc > 2) {
+        fprintf(stderr, "wonderland: break: too many arguments\n");
+        return 1;
+    }
+    if (argc == 2 && !wl_parse_small_number(argv[1], 1, 1000000, &count)) {
+        fprintf(stderr, "wonderland: break: %s: numeric argument required\n",
+                argv[1]);
+        return 1;
+    }
+    if (sh->loop_depth == 0) {
+        fprintf(stderr, "wonderland: break: not in a loop\n");
+        return 1;
+    }
+    sh->break_count = count;
+    return 0;
+}
+
+static int wl_builtin_continue(struct wl_shell *sh, int argc, char **argv) {
+    int count = 1;
+
+    if (argc > 2) {
+        fprintf(stderr, "wonderland: continue: too many arguments\n");
+        return 1;
+    }
+    if (argc == 2 && !wl_parse_small_number(argv[1], 1, 1000000, &count)) {
+        fprintf(stderr, "wonderland: continue: %s: numeric argument "
+                        "required\n",
+                argv[1]);
+        return 1;
+    }
+    if (sh->loop_depth == 0) {
+        fprintf(stderr, "wonderland: continue: not in a loop\n");
+        return 1;
+    }
+    sh->continue_count = count;
+    return 0;
+}
+
+static char **wl_trap_slot(struct wl_shell *sh, const char *name, int *signo) {
+    *signo = 0;
+    if (strcmp(name, "EXIT") == 0 || strcmp(name, "0") == 0) {
+        return &sh->trap_exit;
+    }
+    if (strcmp(name, "INT") == 0 || strcmp(name, "SIGINT") == 0) {
+        *signo = SIGINT;
+        return &sh->trap_int;
+    }
+    if (strcmp(name, "TERM") == 0 || strcmp(name, "SIGTERM") == 0) {
+        *signo = SIGTERM;
+        return &sh->trap_term;
+    }
+    return NULL;
+}
+
+static int wl_builtin_trap(struct wl_shell *sh, int argc, char **argv) {
+    int status = 0;
+
+    if (argc == 1) {
+        if (sh->trap_exit != NULL) {
+            printf("trap -- '%s' EXIT\n", sh->trap_exit);
+        }
+        if (sh->trap_int != NULL) {
+            printf("trap -- '%s' INT\n", sh->trap_int);
+        }
+        if (sh->trap_term != NULL) {
+            printf("trap -- '%s' TERM\n", sh->trap_term);
+        }
+        return 0;
+    }
+    if (argc == 2) {
+        fprintf(stderr, "wonderland: trap: missing signal operands\n");
+        return 2;
+    }
+
+    {
+        const char *action = argv[1];
+        bool reset = strcmp(action, "-") == 0;
+
+        for (int index = 2; index < argc; index++) {
+            int signo = 0;
+            char **slot = wl_trap_slot(sh, argv[index], &signo);
+
+            if (slot == NULL) {
+                fprintf(stderr,
+                        "wonderland: trap: unsupported signal: %s\n",
+                        argv[index]);
+                status = 1;
+                continue;
+            }
+            free(*slot);
+            if (reset) {
+                *slot = NULL;
+            } else {
+                *slot = strdup(action);
+                if (*slot == NULL) {
+                    fprintf(stderr, "wonderland: trap: out of memory\n");
+                    status = 1;
+                }
+            }
+            if (signo != 0 && !reset) {
+                wl_signal_install_trap(signo);
+            }
+        }
+    }
+    return status;
+}
+
+static int wl_builtin_colon(struct wl_shell *sh, int argc, char **argv) {
+    (void)sh;
+    (void)argc;
+    (void)argv;
+    return 0;
+}
+
 struct wl_builtin {
     const char *name;
     int (*run)(struct wl_shell *sh, int argc, char **argv);
 };
 
 static const struct wl_builtin wl_builtins[] = {
+    {":", wl_builtin_colon},
+    {"break", wl_builtin_break},
     {"cd", wl_builtin_cd},
+    {"continue", wl_builtin_continue},
     {"exit", wl_builtin_exit},
     {"export", wl_builtin_export},
+    {"return", wl_builtin_return},
+    {"set", wl_builtin_set},
+    {"shift", wl_builtin_shift},
+    {"trap", wl_builtin_trap},
     {"unset", wl_builtin_unset},
 };
 

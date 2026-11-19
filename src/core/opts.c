@@ -6,6 +6,10 @@
 /*
  * Option parsing.
  *
+ * Positional arguments after a script path, or after `-c`'s command string,
+ * belong to the script/program: the first one is $0, the rest are $1... .
+ * That is the POSIX convention and the only way to pass arguments to a script.
+ *
  * The rule applied throughout: a request this build cannot serve is refused
  * loudly with a distinct exit code, never silently ignored
  * (docs/DECISIONS.md D-0026).
@@ -17,11 +21,16 @@ static void wl_set_usage_error(struct wl_options *out, const char *message) {
 
 enum wl_opt_action wl_opts_parse(int argc, char **argv, struct wl_options *out) {
     bool want_version = false;
+    int command_index = -1;
+    int script_index = -1;
+    int stdin_index = -1;
 
     out->plain = false;
     out->command = NULL;
     out->script = NULL;
     out->stdin_stream = false;
+    out->arg_start = 0;
+    out->arg_count = 0;
     out->usage_error[0] = '\0';
 
     for (int index = 1; index < argc; index++) {
@@ -38,25 +47,35 @@ enum wl_opt_action wl_opts_parse(int argc, char **argv, struct wl_options *out) 
             }
             index++;
             out->command = argv[index];
+            command_index = index;
         } else if (argument[0] == '-' && argument[1] != '\0') {
             (void)snprintf(out->usage_error, sizeof out->usage_error,
                            "unknown option '%s'", argument);
             return WL_OPT_USAGE_ERROR;
-        } else if (strcmp(argument, "-") == 0) {
+        } else if (strcmp(argument, "-") == 0 && command_index < 0 &&
+                   script_index < 0) {
             out->stdin_stream = true;
-        } else {
-            if (out->script != NULL) {
-                wl_set_usage_error(
-                    out, "multiple script operands are not supported yet");
-                return WL_OPT_USAGE_ERROR;
-            }
+            stdin_index = index;
+        } else if (command_index < 0 && script_index < 0) {
             out->script = argument;
+            script_index = index;
         }
+        /* Any further operands are arguments to the command or script. */
     }
 
-    if (out->command != NULL && out->script != NULL) {
-        wl_set_usage_error(out, "-c and a script operand cannot be combined");
-        return WL_OPT_USAGE_ERROR;
+    if (want_version) {
+        return WL_OPT_VERSION;
+    }
+
+    if (out->command != NULL) {
+        out->arg_start = (size_t)(command_index + 1);
+        out->arg_count = (size_t)(argc - command_index - 1);
+    } else if (out->script != NULL) {
+        out->arg_start = (size_t)(script_index + 1);
+        out->arg_count = (size_t)(argc - script_index - 1);
+    } else if (out->stdin_stream) {
+        out->arg_start = (size_t)(stdin_index + 1);
+        out->arg_count = (size_t)(argc - stdin_index - 1);
     }
 
     /* Non-interactive execution never shows the world (amendment 2). */
@@ -64,9 +83,6 @@ enum wl_opt_action wl_opts_parse(int argc, char **argv, struct wl_options *out) 
         out->plain = true;
     }
 
-    if (want_version) {
-        return WL_OPT_VERSION;
-    }
     if (out->command != NULL) {
         return WL_OPT_COMMAND;
     }

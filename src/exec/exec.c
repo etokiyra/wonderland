@@ -8,14 +8,18 @@
 #include "core/limits.h"
 #include "core/shell.h"
 #include "core/var.h"
+#include "internal.h"
 #include "expand/expand.h"
 #include "exec/path.h"
 #include "jobs/signal.h"
 #include "lex/lex.h"
+#include "parse/parse.h"
 
 #include <errno.h>
 #include <fcntl.h>
+#include <fnmatch.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,7 +58,7 @@ struct wl_saved_var {
     bool exported;
 };
 
-static bool wl_exec_node(struct wl_shell *shell, const struct wl_node *node);
+bool wl_exec_node(struct wl_shell *shell, const struct wl_node *node);
 
 static void wl_prepared_init(struct wl_prepared *prepared) {
     prepared->items = NULL;
@@ -791,6 +795,15 @@ static bool wl_exec_simple(struct wl_shell *shell, const struct wl_node *node) {
         return false;
     }
 
+    if (shell->xtrace) {
+        fputc('+', stderr);
+        for (size_t index = 0; index < argv.count; index++) {
+            fputc(' ', stderr);
+            fputs(argv.items[index], stderr);
+        }
+        fputc('\n', stderr);
+    }
+
     if (wl_builtin_is(argv.items[0])) {
         struct wl_saved_var *saved = NULL;
         size_t saved_count = 0;
@@ -802,6 +815,28 @@ static bool wl_exec_simple(struct wl_shell *shell, const struct wl_node *node) {
         } else {
             ok = wl_run_builtin_redirected(shell, &prepared, (int)argv.count,
                                            argv.items);
+            wl_restore_assignments(shell, saved, saved_count);
+        }
+    } else if (wl_exec_function_exists(shell, argv.items[0],
+                                       strlen(argv.items[0]))) {
+        struct wl_saved_var *saved = NULL;
+        size_t saved_count = 0;
+        struct wl_fd_guard guard;
+        bool applied;
+
+        if (!wl_save_and_apply_assignments(&ctx, node, &saved,
+                                           &saved_count)) {
+            wl_shell_set_status(shell, 1);
+            ok = false;
+        } else {
+            applied = wl_guard_begin(shell, &prepared, &guard);
+            if (applied) {
+                ok = wl_exec_function_call(shell, argv.items[0],
+                                           (int)argv.count, argv.items);
+            } else {
+                ok = false;
+            }
+            wl_guard_end(&guard);
             wl_restore_assignments(shell, saved, saved_count);
         }
     } else {
@@ -826,6 +861,9 @@ struct wl_stage {
     struct wl_prepared redirs;
     char **environment;
     bool builtin;
+    bool function_call;
+    bool compound;
+    const struct wl_node *node;
 };
 
 static void wl_stage_free(struct wl_stage *stage) {
@@ -842,12 +880,15 @@ static bool wl_prepare_stage(struct wl_expand_ctx *ctx,
     wl_prepared_init(&stage->redirs);
     stage->environment = NULL;
     stage->builtin = false;
+    stage->function_call = false;
+    stage->compound = false;
+    stage->node = NULL;
 
     if (node->kind != WL_NODE_SIMPLE) {
-        fprintf(stderr,
-                "wonderland: a compound command inside a pipeline is not "
-                "implemented yet (M3b)\n");
-        return false;
+        /* Compound stages run their own node (and redirections) in the child. */
+        stage->compound = true;
+        stage->node = node;
+        return true;
     }
     if (!wl_expand_words(ctx, node->u.simple.words,
                          node->u.simple.word_count, &stage->argv)) {
@@ -859,7 +900,10 @@ static bool wl_prepare_stage(struct wl_expand_ctx *ctx,
         return false;
     }
     stage->builtin = wl_builtin_is(stage->argv.items[0]);
-    if (!stage->builtin) {
+    stage->function_call =
+        wl_exec_function_exists(ctx->shell, stage->argv.items[0],
+                                strlen(stage->argv.items[0]));
+    if (!stage->builtin && !stage->function_call) {
         stage->environment = wl_build_env(ctx, node);
         if (stage->environment == NULL) {
             return false;
@@ -954,6 +998,17 @@ static bool wl_exec_pipeline(struct wl_shell *shell,
                 if (!wl_apply_redirs(&stages[index].redirs)) {
                     _exit(1);
                 }
+                if (stages[index].compound) {
+                    (void)wl_exec_node(shell, stages[index].node);
+                    _exit(shell->last_status & 0xff);
+                }
+                if (stages[index].function_call) {
+                    (void)wl_exec_function_call(
+                        shell, stages[index].argv.items[0],
+                        (int)stages[index].argv.count,
+                        stages[index].argv.items);
+                    _exit(shell->last_status & 0xff);
+                }
                 if (stages[index].builtin) {
                     (void)wl_builtin_run(shell, (int)stages[index].argv.count,
                                          stages[index].argv.items);
@@ -1009,19 +1064,289 @@ static bool wl_exec_pipeline(struct wl_shell *shell,
     return ok;
 }
 
-static bool wl_exec_node(struct wl_shell *shell, const struct wl_node *node);
-
-static bool wl_exec_andor(struct wl_shell *shell, const struct wl_node *node) {
-    if (!wl_exec_node(shell, node->u.andor.first)) {
+static bool wl_exec_loop_body(struct wl_shell *shell,
+                              const struct wl_node *body, bool *stop) {
+    *stop = false;
+    if (!wl_exec_node(shell, body)) {
         return false;
     }
+    if (!shell->running || shell->returning) {
+        *stop = true;
+        return true;
+    }
+    if (shell->break_count > 0) {
+        shell->break_count--;
+        *stop = true;
+        return true;
+    }
+    if (shell->continue_count > 0) {
+        shell->continue_count--;
+        if (shell->continue_count > 0) {
+            *stop = true;
+        }
+        return true;
+    }
+    return true;
+}
+
+static bool wl_exec_if(struct wl_shell *shell, const struct wl_node *node) {
+    for (size_t index = 0; index < node->u.ifclause.arm_count; index++) {
+        bool ok;
+
+        shell->suppression++;
+        ok = wl_exec_node(shell, node->u.ifclause.arms[index].condition);
+        shell->suppression--;
+        if (!ok) {
+            return false;
+        }
+        if (shell->last_status == 0) {
+            return wl_exec_node(shell, node->u.ifclause.arms[index].body);
+        }
+        if (!shell->running || shell->returning) {
+            return true;
+        }
+    }
+    if (node->u.ifclause.else_body != NULL) {
+        return wl_exec_node(shell, node->u.ifclause.else_body);
+    }
+    wl_shell_set_status(shell, 0);
+    return true;
+}
+
+static bool wl_exec_while(struct wl_shell *shell, const struct wl_node *node) {
+    bool ok = true;
+
+    shell->loop_depth++;
+    for (;;) {
+        bool iterate;
+        bool stop;
+
+        if (!shell->running || shell->returning) {
+            break;
+        }
+        shell->suppression++;
+        ok = wl_exec_node(shell, node->u.whileloop.condition);
+        shell->suppression--;
+        if (!ok) {
+            break;
+        }
+        iterate = node->u.whileloop.until ? (shell->last_status != 0)
+                                          : (shell->last_status == 0);
+        if (!iterate) {
+            break;
+        }
+        ok = wl_exec_loop_body(shell, node->u.whileloop.body, &stop);
+        if (!ok || stop) {
+            break;
+        }
+    }
+    shell->loop_depth--;
+    return ok;
+}
+
+static bool wl_exec_for(struct wl_shell *shell, const struct wl_node *node) {
+    struct wl_expand_ctx ctx;
+    struct wl_argv words;
+    bool ok = true;
+
+    wl_expand_ctx_init(&ctx, shell);
+    wl_argv_init(&words);
+
+    if (node->u.forloop.words_given) {
+        if (!wl_expand_words(&ctx, node->u.forloop.words,
+                             node->u.forloop.word_count, &words)) {
+            wl_report_expand_error(&ctx);
+            wl_shell_set_status(shell, 1);
+            wl_argv_free(&words);
+            return false;
+        }
+    } else if (shell->frame != NULL) {
+        for (size_t index = 0; index < shell->frame->count; index++) {
+            char *copy = strdup(shell->frame->args[index]);
+
+            if (copy == NULL || !wl_argv_push(&words, copy)) {
+                free(copy);
+                fprintf(stderr, "wonderland: out of memory\n");
+                wl_shell_set_status(shell, 1);
+                wl_argv_free(&words);
+                return false;
+            }
+        }
+    }
+
+    if (words.count == 0) {
+        wl_shell_set_status(shell, 0);
+    }
+
+    shell->loop_depth++;
+    for (size_t index = 0; index < words.count && ok; index++) {
+        bool stop;
+
+        if (!shell->running || shell->returning) {
+            break;
+        }
+        if (!wl_var_set(&shell->vars, node->u.forloop.name.data,
+                        node->u.forloop.name.len, words.items[index],
+                        strlen(words.items[index]), false)) {
+            fprintf(stderr, "wonderland: out of memory\n");
+            wl_shell_set_status(shell, 1);
+            ok = false;
+            break;
+        }
+        ok = wl_exec_loop_body(shell, node->u.forloop.body, &stop);
+        if (!ok || stop) {
+            break;
+        }
+    }
+    shell->loop_depth--;
+
+    wl_argv_free(&words);
+    return ok;
+}
+
+static bool wl_exec_case(struct wl_shell *shell, const struct wl_node *node) {
+    struct wl_expand_ctx ctx;
+    struct wl_buf subject;
+    bool matched = false;
+    bool ok = true;
+
+    wl_expand_ctx_init(&ctx, shell);
+    wl_buf_init(&subject);
+    if (!wl_expand_single(&ctx, node->u.caseclause.word, &subject)) {
+        wl_report_expand_error(&ctx);
+        wl_buf_free(&subject);
+        wl_shell_set_status(shell, 1);
+        return false;
+    }
+
+    for (size_t item_index = 0;
+         item_index < node->u.caseclause.item_count && !matched; item_index++) {
+        const struct wl_case_item *item =
+            &node->u.caseclause.items[item_index];
+
+        for (size_t pattern_index = 0;
+             pattern_index < item->pattern_count; pattern_index++) {
+            struct wl_buf pattern;
+
+            wl_buf_init(&pattern);
+            if (!wl_expand_single(&ctx, item->patterns[pattern_index],
+                                  &pattern)) {
+                wl_report_expand_error(&ctx);
+                wl_buf_free(&pattern);
+                wl_shell_set_status(shell, 1);
+                wl_buf_free(&subject);
+                return false;
+            }
+            if (fnmatch((pattern.data != NULL) ? pattern.data : "",
+                        (subject.data != NULL) ? subject.data : "", 0) == 0) {
+                matched = true;
+                wl_buf_free(&pattern);
+                break;
+            }
+            wl_buf_free(&pattern);
+        }
+
+        if (matched) {
+            ok = wl_exec_node(shell, item->body);
+        }
+    }
+
+    if (!matched) {
+        wl_shell_set_status(shell, 0);
+    }
+    wl_buf_free(&subject);
+    return ok;
+}
+
+static bool wl_exec_group(struct wl_shell *shell, const struct wl_node *node) {
+    struct wl_expand_ctx ctx;
+    struct wl_prepared prepared;
+    struct wl_fd_guard guard;
+    bool applied;
+    bool ok;
+
+    wl_expand_ctx_init(&ctx, shell);
+    wl_prepared_init(&prepared);
+    if (!wl_prepare_redirs(&ctx, node, &prepared)) {
+        wl_shell_set_status(shell, 1);
+        return false;
+    }
+    applied = wl_guard_begin(shell, &prepared, &guard);
+    ok = applied ? wl_exec_node(shell, node->u.group.body) : false;
+    wl_guard_end(&guard);
+    wl_prepared_free(&prepared);
+    return ok;
+}
+
+static bool wl_exec_subshell(struct wl_shell *shell,
+                             const struct wl_node *node) {
+    struct wl_expand_ctx ctx;
+    struct wl_prepared prepared;
+    pid_t child;
+    int status;
+
+    wl_expand_ctx_init(&ctx, shell);
+    wl_prepared_init(&prepared);
+    if (!wl_prepare_redirs(&ctx, node, &prepared)) {
+        wl_shell_set_status(shell, 1);
+        return false;
+    }
+
+    fflush(NULL);
+    child = fork();
+    if (child < 0) {
+        fprintf(stderr, "wonderland: fork: %s\n", strerror(errno));
+        wl_prepared_free(&prepared);
+        wl_shell_set_status(shell, 1);
+        return false;
+    }
+    if (child == 0) {
+        wl_signal_reset_for_child();
+        if (!wl_apply_redirs(&prepared)) {
+            _exit(1);
+        }
+        (void)wl_exec_node(shell, node->u.group.body);
+        _exit(shell->last_status & 0xff);
+    }
+
+    wl_prepared_free(&prepared);
+    status = wl_wait_status(child);
+    wl_shell_set_status(shell, status);
+    return true;
+}
+
+static bool wl_exec_andor(struct wl_shell *shell, const struct wl_node *node) {
+    bool ok;
+
+    if (node->u.andor.count == 0) {
+        return wl_exec_node(shell, node->u.andor.first);
+    }
+
+    shell->suppression++;
+    ok = wl_exec_node(shell, node->u.andor.first);
+    shell->suppression--;
+    if (!ok) {
+        return false;
+    }
+
     for (size_t index = 0; index < node->u.andor.count; index++) {
         const struct wl_andor_link *link = &node->u.andor.links[index];
         bool run = (link->op == WL_ANDOR_AND)
                        ? (shell->last_status == 0)
                        : (shell->last_status != 0);
+        bool last = (index + 1 == node->u.andor.count);
 
-        if (run && !wl_exec_node(shell, link->node)) {
+        if (!run) {
+            continue;
+        }
+        if (!last) {
+            shell->suppression++;
+        }
+        ok = wl_exec_node(shell, link->node);
+        if (!last) {
+            shell->suppression--;
+        }
+        if (!ok) {
             return false;
         }
     }
@@ -1030,7 +1355,8 @@ static bool wl_exec_andor(struct wl_shell *shell, const struct wl_node *node) {
 
 static bool wl_exec_list(struct wl_shell *shell, const struct wl_node *node) {
     for (size_t index = 0; index < node->u.list.count; index++) {
-        if (!shell->running) {
+        if (!shell->running || shell->returning || shell->break_count > 0 ||
+            shell->continue_count > 0) {
             break;
         }
         if (node->u.list.async[index]) {
@@ -1047,7 +1373,8 @@ static bool wl_exec_list(struct wl_shell *shell, const struct wl_node *node) {
     return true;
 }
 
-static bool wl_exec_node(struct wl_shell *shell, const struct wl_node *node) {
+static bool wl_exec_node_inner(struct wl_shell *shell,
+                               const struct wl_node *node) {
     switch (node->kind) {
     case WL_NODE_LIST:
         return wl_exec_list(shell, node);
@@ -1057,13 +1384,49 @@ static bool wl_exec_node(struct wl_shell *shell, const struct wl_node *node) {
         return wl_exec_pipeline(shell, node);
     case WL_NODE_SIMPLE:
         return wl_exec_simple(shell, node);
+    case WL_NODE_IF:
+        return wl_exec_if(shell, node);
+    case WL_NODE_WHILE:
+        return wl_exec_while(shell, node);
+    case WL_NODE_FOR:
+        return wl_exec_for(shell, node);
+    case WL_NODE_CASE:
+        return wl_exec_case(shell, node);
+    case WL_NODE_GROUP:
+        return wl_exec_group(shell, node);
+    case WL_NODE_SUBSHELL:
+        return wl_exec_subshell(shell, node);
+    case WL_NODE_FUNC:
+        if (!wl_exec_function_define(shell, node)) {
+            wl_shell_set_status(shell, 2);
+            return false;
+        }
+        wl_shell_set_status(shell, 0);
+        return true;
     default:
-        fprintf(stderr,
-                "wonderland: a compound command is not implemented yet "
-                "(M3b)\n");
+        fprintf(stderr, "wonderland: unsupported syntax node\n");
         wl_shell_set_status(shell, 2);
         return false;
     }
+}
+
+bool wl_exec_node(struct wl_shell *shell, const struct wl_node *node) {
+    bool ok;
+
+    if (shell->noexec) {
+        return true;
+    }
+    ok = wl_exec_node_inner(shell, node);
+    if (shell->trap_depth == 0) {
+        wl_exec_trap_dispatch(shell);
+    }
+    if (ok && shell->errexit && shell->suppression == 0 &&
+        !shell->interactive && shell->running && !shell->returning &&
+        shell->break_count == 0 && shell->continue_count == 0 &&
+        shell->last_status != 0) {
+        shell->running = false;
+    }
+    return ok;
 }
 
 bool wl_exec_program(struct wl_shell *shell, const struct wl_node *program) {
@@ -1071,4 +1434,97 @@ bool wl_exec_program(struct wl_shell *shell, const struct wl_node *program) {
         return true;
     }
     return wl_exec_node(shell, program);
+}
+
+bool wl_exec_text(struct wl_shell *shell, const char *text) {
+    struct wl_arena arena;
+    struct wl_diag diag;
+    struct wl_node *program;
+    const char *saved_source = shell->source;
+    size_t saved_length = shell->source_length;
+    size_t length = strlen(text);
+    bool ok;
+
+    wl_arena_init(&arena);
+    wl_diag_clear(&diag);
+    program = wl_parse_source(text, length, "<trap>", &arena, &diag);
+    if (program == NULL) {
+        if (diag.set) {
+            wl_diag_print(&diag, text, length, "<trap>", stderr);
+        }
+        wl_shell_set_status(shell, 2);
+        wl_arena_reset(&arena);
+        return false;
+    }
+    shell->source = text;
+    shell->source_length = length;
+    ok = wl_exec_program(shell, program);
+    shell->source = saved_source;
+    shell->source_length = saved_length;
+    wl_arena_reset(&arena);
+    return ok;
+}
+
+bool wl_exec_trap_run(struct wl_shell *shell, int signo) {
+    const char *action = NULL;
+    int saved_status = shell->last_status;
+    bool ok;
+
+    if (signo == 0) {
+        action = shell->trap_exit;
+    } else if (signo == SIGINT) {
+        action = shell->trap_int;
+    } else if (signo == SIGTERM) {
+        action = shell->trap_term;
+    }
+    if (action == NULL || action[0] == '\0') {
+        return true;
+    }
+    shell->trap_depth++;
+    ok = wl_exec_text(shell, action);
+    shell->trap_depth--;
+    if (shell->running) {
+        shell->last_status = saved_status;
+    }
+    return ok;
+}
+
+void wl_exec_trap_dispatch(struct wl_shell *shell) {
+    if (shell->trap_depth > 0) {
+        return;
+    }
+    if (wl_signal_take_interrupt()) {
+        (void)wl_exec_trap_run(shell, SIGINT);
+    }
+    if (wl_signal_take_term()) {
+        (void)wl_exec_trap_run(shell, SIGTERM);
+    }
+}
+
+void wl_exec_run_exit_trap(struct wl_shell *shell) {
+    int saved_status;
+    bool was_running;
+
+    if (shell->trap_exit == NULL) {
+        return;
+    }
+    saved_status = shell->last_status;
+    was_running = shell->running;
+    /*
+     * `exit` has already cleared `running`; the trap must still run. If it
+     * calls exit itself, that wins; otherwise the original status and running
+     * flag are restored.
+     */
+    shell->running = true;
+    shell->trap_depth++;
+    (void)wl_exec_text(shell, shell->trap_exit);
+    shell->trap_depth--;
+    if (shell->running) {
+        shell->last_status = saved_status;
+        shell->running = was_running;
+    }
+}
+
+void wl_exec_shutdown(struct wl_shell *shell) {
+    wl_exec_function_free(shell);
 }

@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,8 +26,9 @@
  *
  * Three input paths: -c STRING (one complete unit), stdin (read whole, one
  * unit), interactive (one logical line at a time, with a continuation prompt
- * while the parser reports `incomplete`). All parsing goes through
- * wl_parse_source; execution goes through wl_exec_program.
+ * while the parser reports `incomplete`) and a script file. The source text is
+ * published on the shell for the duration of execution so that function
+ * definitions can copy their own body into a session-lifetime arena.
  */
 
 static bool wl_run_source(struct wl_shell *shell, struct wl_arena *arena,
@@ -34,6 +36,7 @@ static bool wl_run_source(struct wl_shell *shell, struct wl_arena *arena,
                           const char *name) {
     struct wl_diag diag;
     struct wl_node *program;
+    bool ok;
 
     wl_diag_clear(&diag);
     program = wl_parse_source(source, length, name, arena, &diag);
@@ -48,7 +51,13 @@ static bool wl_run_source(struct wl_shell *shell, struct wl_arena *arena,
         wl_shell_set_status(shell, 2);
         return false;
     }
-    return wl_exec_program(shell, program);
+
+    shell->source = source;
+    shell->source_length = length;
+    ok = wl_exec_program(shell, program);
+    shell->source = NULL;
+    shell->source_length = 0;
+    return ok;
 }
 
 /*
@@ -107,6 +116,7 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena) {
         read_status = wl_line_read(shell->tty_fd, line + used,
                                    sizeof line - used, &length);
         if (read_status == WL_LINE_INTERRUPTED) {
+            wl_exec_trap_dispatch(shell);
             fputc('\n', stderr);
             fflush(stderr);
             used = 0;
@@ -179,7 +189,11 @@ static void wl_run_interactive(struct wl_shell *shell, struct wl_arena *arena) {
                 continue;
             }
 
+            shell->source = line;
+            shell->source_length = used;
             (void)wl_exec_program(shell, program);
+            shell->source = NULL;
+            shell->source_length = 0;
             wl_arena_reset(arena);
             used = 0;
             continuing = false;
@@ -212,20 +226,61 @@ static bool wl_read_all(FILE *input, struct wl_buf *source) {
     return true;
 }
 
+static bool wl_read_file(const char *path, struct wl_buf *source) {
+    FILE *file = fopen(path, "r");
+    bool ok;
+
+    if (file == NULL) {
+        fprintf(stderr, "wonderland: %s: %s\n", path, strerror(errno));
+        return false;
+    }
+    ok = wl_read_all(file, source);
+    (void)fclose(file);
+    return ok;
+}
+
 static void wl_run_stream(struct wl_shell *shell, struct wl_arena *arena,
-                          FILE *input) {
+                          FILE *input, const char *name) {
     struct wl_buf source;
 
     wl_buf_init(&source);
     if (wl_read_all(input, &source)) {
         (void)wl_run_source(shell, arena,
                             (source.data != NULL) ? source.data : "",
-                            source.len, "<stdin>");
+                            source.len, name);
         wl_arena_reset(arena);
     } else {
         wl_shell_set_status(shell, 2);
     }
     wl_buf_free(&source);
+}
+
+static void wl_set_positional(struct wl_shell *shell,
+                              enum wl_opt_action action,
+                              const struct wl_options *opts, char **argv) {
+    const char *name0 = "wonderland";
+    char **arguments = NULL;
+    size_t count = 0;
+
+    if (action == WL_OPT_COMMAND) {
+        if (opts->arg_count > 0) {
+            name0 = argv[opts->arg_start];
+            arguments = argv + opts->arg_start + 1;
+            count = opts->arg_count - 1;
+        }
+    } else if (action == WL_OPT_SCRIPT) {
+        name0 = opts->script;
+        arguments = argv + opts->arg_start;
+        count = opts->arg_count;
+    } else if (opts->stdin_stream && opts->arg_count > 0) {
+        name0 = argv[opts->arg_start];
+        arguments = argv + opts->arg_start + 1;
+        count = opts->arg_count - 1;
+    }
+
+    if (!wl_shell_set_args(shell, name0, arguments, count)) {
+        fprintf(stderr, "wonderland: out of memory\n");
+    }
 }
 
 int main(int argc, char **argv) {
@@ -239,7 +294,7 @@ int main(int argc, char **argv) {
     if (action == WL_OPT_USAGE_ERROR) {
         fprintf(stderr, "wonderland: %s\n", opts.usage_error);
         fprintf(stderr, "usage: wonderland [--plain] [--version] [-c STRING]"
-                        " [SCRIPT | -]\n");
+                        " [SCRIPT | -] [ARG...]\n");
         return WL_EXIT_USAGE;
     }
 
@@ -251,18 +306,12 @@ int main(int argc, char **argv) {
         return WL_EXIT_OK;
     }
 
-    if (action == WL_OPT_SCRIPT) {
-        fprintf(stderr,
-                "wonderland: script files are not supported yet (M3); use -c "
-                "or stdin\n");
-        return WL_EXIT_UNIMPLEMENTED;
-    }
-
     interactive = (action == WL_OPT_START) && !opts.stdin_stream &&
                   isatty(STDIN_FILENO) && isatty(STDERR_FILENO);
 
     wl_shell_init(&shell, opts.plain, interactive);
     wl_arena_init(&arena);
+    wl_set_positional(&shell, action, &opts, argv);
 
     term.fd = -1;
     term.saved = false;
@@ -272,24 +321,45 @@ int main(int argc, char **argv) {
     }
 
     if (action == WL_OPT_COMMAND) {
-        if (strlen(opts.command) > WL_SOURCE_MAX) {
+        size_t length = strlen(opts.command);
+
+        if (length > WL_SOURCE_MAX) {
             fprintf(stderr, "wonderland: -c input is too large (max %d bytes)\n",
                     WL_SOURCE_MAX);
-            return WL_EXIT_USAGE;
+            wl_shell_set_status(&shell, 2);
+        } else {
+            (void)wl_run_source(&shell, &arena, opts.command, length, "-c");
         }
-        (void)wl_run_source(&shell, &arena, opts.command,
-                            strlen(opts.command), "-c");
+        wl_arena_reset(&arena);
+    } else if (action == WL_OPT_SCRIPT) {
+        struct wl_buf source;
+
+        wl_buf_init(&source);
+        if (wl_read_file(opts.script, &source)) {
+            (void)wl_run_source(&shell, &arena,
+                                (source.data != NULL) ? source.data : "",
+                                source.len, opts.script);
+        } else {
+            wl_shell_set_status(&shell, 127);
+        }
+        wl_buf_free(&source);
         wl_arena_reset(&arena);
     } else if (interactive) {
         wl_run_interactive(&shell, &arena);
     } else {
-        wl_run_stream(&shell, &arena, stdin);
+        wl_run_stream(&shell, &arena, stdin, "<stdin>");
     }
 
+    wl_exec_run_exit_trap(&shell);
     wl_arena_reset(&arena);
     if (interactive) {
         wl_term_restore(&term);
     }
-    wl_shell_destroy(&shell);
-    return shell.last_status;
+    {
+        int status = shell.last_status;
+
+        wl_exec_shutdown(&shell);
+        wl_shell_destroy(&shell);
+        return status;
+    }
 }

@@ -21,4 +21,16 @@ struct wl_shell;
  */
 bool wl_exec_program(struct wl_shell *shell, const struct wl_node *program);
 
+/* Frees the function table; call before wl_shell_destroy(). */
+void wl_exec_shutdown(struct wl_shell *shell);
+
+/* Runs the EXIT trap, if any, preserving the exit status unless it exits. */
+void wl_exec_run_exit_trap(struct wl_shell *shell);
+
+/* Runs the stored trap for signo (SIGINT/SIGTERM) if one is set. */
+bool wl_exec_trap_run(struct wl_shell *shell, int signo);
+
+/* Runs pending INT/TERM traps if their signal arrived. */
+void wl_exec_trap_dispatch(struct wl_shell *shell);
+
 #endif /* WL_EXEC_EXEC_H */

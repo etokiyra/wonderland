@@ -2,6 +2,7 @@
 #define WL_CORE_OPTS_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 /*
  * Command-line handling.
@@ -42,6 +43,10 @@ struct wl_options {
 
     /* "-" was given: read stdin even if it is a terminal. */
     bool stdin_stream;
+
+    /* Positional arguments: argv[arg_start] .. argv[arg_start+arg_count-1]. */
+    size_t arg_start;
+    size_t arg_count;
 
     /* Human-readable reason for WL_OPT_USAGE_ERROR; empty otherwise. */
     char usage_error[160];
