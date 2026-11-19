@@ -3,12 +3,13 @@
 A Unix shell in C17 for Linux, with an optional narrative layer: a dark
 fairy-tale world inhabited by personas who react to what happens in the shell.
 
-**Status: Milestone 5. Wonderland is a working shell for scripts and daily
-interactive use.** Variables, expansion, redirections, pipelines, control
-flow, functions, positional parameters, traps, `set`, script files, job
-control, a raw-mode line editor, history, and tab completion work. The
-narrative layer and Bash extensions do not. Do not put it in `/etc/shells`
-and do not `chsh` to it yet.
+**Status: Milestone 3.5 / 5. Wonderland is a working shell for scripts and
+daily interactive use, with a first slice of its narrative layer.** Variables,
+expansion, redirections, pipelines, control flow, functions, positional
+parameters, traps, `set`, script files, job control, a raw-mode line editor,
+history, and tab completion work. Alice can speak after a command in an
+interactive session; `--plain` silences her. The pack loader and the rest of
+the cast are M6. Do not put it in `/etc/shells` and do not `chsh` to it yet.
 
 The ordering principle is not decorative:
 
@@ -66,15 +67,17 @@ wonderland:~/Projects/wonderland $ bg
 * `$'...'` ANSI-C quoting and a `read [-r]` builtin.
 * Builtins: `:`, `bg`, `break`, `cd`, `continue`, `exit`, `export`, `fg`,
   `jobs`, `read`, `return`, `set`, `shift`, `trap`, `unset`, `wait`.
-* `--plain` / `WONDERLAND_PLAIN=1`; the narrative layer is not built yet, so
-  plain mode currently has nothing to suppress.
+* Optional narrative slice: Alice may comment after a failed command (and
+  rarely after successes) in an interactive session, on stderr only. Plain
+  mode, `-c`, scripts and pipes silence her completely.
 * A parser for the whole grammar in `docs/GRAMMAR.md` with caret diagnostics.
 
 ## What does not work yet
 
 | Missing | Arrives |
 |---|---|
-| Personas, packs, `possess`, `rest`, `go-to-alice` | M3.5, M6–M7 |
+| Pack loader, persona engine, `possess`, the rest of the cast | M6 |
+| Alice's Library, `rest`, mirror, `go-to-alice` | M7 |
 | `kill`, `disown`, `jobs -l`, warning on exit with stopped jobs | M8 polish |
 | UTF-8 cursor movement, completion listing, Ctrl-R history search | M8 polish |
 | `local`, `exec`, `command`, `type`, `getopts`, `umask` | later |
@@ -92,7 +95,7 @@ candidates or quote paths with spaces.
 
 ```sh
 make                 # build/wonderland
-make test            # 75 unit cases + 142 CLI checks + pty + 14 differential cases
+make test            # 79 unit cases + 143 CLI checks + pty + 14 differential cases
 make diff            # differential cases only (dash + bash required)
 make asan            # the same under ASan/UBSan
 make memcheck        # unit suite under valgrind (if installed)
@@ -115,7 +118,7 @@ src/expand     expansion, arithmetic, splitting, globbing
 src/exec       AST execution, redirections, pipelines, functions, traps
 src/jobs       signals, job table, waiting, terminal ownership
 src/builtins   cd, exit, export, unset, set, shift, trap, return, break...
-src/narrative  personas and events (isolated library, M3.5+)
+src/narrative  Alice slice: immutable events in, borrowed text out
 src/content    content pack loader (M6)
 include/       public headers
 tests/         unit, CLI, pty, differential cases, isolation probe

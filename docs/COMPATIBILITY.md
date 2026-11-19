@@ -84,6 +84,7 @@ specification, not against another shell.
 | `WONDERLAND_PROMPT`, SIGWINCH redraw | pty session; documented limits |
 | `$'...'` ANSI-C quoting | `tests/run.sh` |
 | `read [-r] name...`, `REPLY`, EOF status | `tests/run.sh` |
+| Narrative output is outside the compatibility surface: interactive-only, stderr, plain-gated | `tests/pty/pty_test.c` (normal and `--plain` sessions) |
 | Non-whitespace `IFS` exactness, `"pre$@"` adjacency, `kill`/`disown`, async job notifications, UTF-8 cursor movement, completion listing | **not implemented/approximate** (D-0068, D-0076, D-0082, D-0089) |
 
 ### 3.1 POSIX surface

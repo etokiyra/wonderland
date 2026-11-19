@@ -23,7 +23,8 @@ stdout for convenience, or `exec` calls a persona to decorate a failure.
 include path, header hygiene, `-Wl,--no-undefined` link probe,
 `scripts/check-isolation.sh`; event structs are `const`; narrative returns text
 and never performs I/O. The isolation check runs in `make test`, so a violation
-fails CI, not review.
+fails CI, not review. The M3.5 slice now exercises the contract with real code
+and a real pty test, including a plain-mode session.
 *Early warning:* a narrative file that includes `core/` or `exec/`; a new
 `wl_narrative_*` symbol referenced inside `exec/`.
 

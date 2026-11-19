@@ -141,29 +141,24 @@ the documented approximation (D-0074), not claimed as full POSIX.
 
 ## M3.5 — Narrative vertical slice (amendment 7)
 
-## M3.5 — Narrative vertical slice (amendment 7)
+Status: **done** (2026-11-19).
 
-Scope, and nothing more:
+Delivered: `libwl_narrative.a` with Alice and **12 original lines** in a
+static table; one `post_exec` hook fed a `const struct wl_event`; the persona
+returns borrowed text and the shell writes it to stderr; the plain gate
+(interactive && !plain; `-c`, scripts, stdin never speak); selection is
+failure-always, every sixth success, and exit, with a four-line no-repeat ring.
 
-* `libwl_narrative.a` with the isolation rules from `docs/ARCHITECTURE.md`
-  §3.1 (link probe + source audit + restricted include path).
-* One persona, **Alice**, with **12 original lines** compiled into the
-  library as a static table (no pack format yet — the format is M6's job and
-  should not be frozen by a slice).
-* A single hook: `post_exec`, fired after the status is stored.
-* The plain-mode gate: `--plain`, `WONDERLAND_PLAIN=1`, non-interactive, or
-  stdin/stderr not a tty ⇒ hook never called.
-* Output to stderr only; no `/dev/tty` logic yet.
+Evidence: 79 unit cases (331 assertions, including cadence and no-repeat), 143
+CLI checks (a failing `-c` leaves stderr empty), a pty session that proves
+Alice speaks on `false`, and a second `--plain` pty session that proves she
+stays silent. The narrative link probe and source audit still pass; ASan,
+valgrind and cppcheck are clean with gcc and clang.
 
-Exit criteria:
-
-* `echo hi` on a tty prints nothing to stdout beyond `hi`; Alice's line (if
-  selected) appears on stderr, verified by capturing streams separately.
-* `wonderland script.sh` and `wonderland -c '...'` produce byte-identical
-  stderr with the narrative library removed from the link.
-* `make check-isolation` passes.
-* The suite proves exit codes and stdout are unchanged with the narrative
-  library linked and unlinked.
+Deviations: no pack format (`alice.pack` remains an example for M6), and
+deterministic cadence instead of the full frequency/cooldown model (D-0092).
+The library still cannot touch execution state; that is the point of the
+slice.
 
 ## M4 — Job Control
 
@@ -286,24 +281,23 @@ and `-c`/stdin handling in `src/main.c`, and tests at three levels (unit, CLI,
 pty). The `pty` test drives a real terminal, not a mock. (`m1_split.c` existed
 here and was deleted in M2.)
 
-## Recommended scope for the narrative slice (M3.5)
+## Recommended scope for the Milestone 6 prompt
 
-> Implement the amendment-7 vertical slice exactly, per `docs/ROADMAP.md` M3.5
-> and `docs/PERSONAS.md`: (1) `libwl_narrative.a` with one persona, Alice, and
-> **12 original lines** in a static table (no pack format yet); (2) a single
-> `post_exec` hook, called after the status is final, receiving a `const
-> struct wl_event *` and returning text; (3) the plain-mode gate: `--plain`,
-> `WONDERLAND_PLAIN=1`, `-c`, scripts, stdin, or non-tty stdin/stderr means the
-> hook is never called; (4) output to stderr only, flushed before the prompt,
-> nothing while a foreground job owns the terminal or a job is in the
-> foreground; (5) tests proving stdout and exit codes are byte-identical with
-> the narrative library linked and unlinked, plus the isolation probe and
-> source audit; (6) update `docs/DECISIONS.md` and report limitations. Do not
-> build the pack format, `possess`, `rest`, or any other persona yet.
+> Implement M6 per `docs/CONTENT_FORMAT.md` and `docs/PERSONAS.md`:
+> (1) the content-pack parser and validator (INI-like sections, here-doc text,
+> status/category/provenance rules, atomic pack rejection, size limits);
+> (2) an immutable persona/line store with deterministic ordering, loaded from
+> `packs/examples/alice.pack` and `$WONDERLAND_PACKS`; (3) the persona engine
+> on top of the M3.5 ABI: event dispatch for the documented event list,
+> frequency, per-kind cooldowns, recent-line anti-repetition, session budget,
+> and silence; (4) `possess <name>` / `possess -l` and `--plain` end to end;
+> (5) the remaining four wave-1 personas with 12–40 original lines each;
+> (6) fuzz the loader (truncated/mutated packs) under ASan, and reject a
+> canonical pack without verification in a test; (7) update docs and report
+> limitations. Do not build Alice's Library, `rest`, mirror mode or
+> `go-to-alice` yet (M7).
 
-After the slice: M6 (pack loader, persona engine, `possess`), M7 (Alice's
-Library, `rest`, mirror, `go-to-alice`), M8 (Bash extensions, `printf`/`local`/
-`kill` polish, install docs). The shell is now usable for daily work, but it
-is still not installed in `/etc/shells` and must not be until the dogfooding
+After M6: M7 (Alice's Library, `rest`/`respawn`, Black Rabbit, mirror,
+`go-to-alice`), M8 (Bash extensions, `printf`/`local`/`kill` polish, install
+docs). The shell remains uninstalled in `/etc/shells` until the dogfooding
 gate is met.
-

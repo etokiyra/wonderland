@@ -1057,3 +1057,57 @@ line-oriented, not character-oriented.
 * A terminal closed mid-line (SIGHUP) saves no history for that line.
 * Interactive history is loaded once at startup; another shell writing the
   same file concurrently is last-writer-wins.
+
+---
+
+## §13. Narrative vertical slice (M3.5)
+
+### D-0090 — The slice proves the ABI, not the content engine
+**2026-11-19 · accepted**
+
+`libwl_narrative.a` exposes exactly three things: `wl_narrative_state_init`,
+`wl_narrative_react` (event in, borrowed `wl_line` out), and the layer name.
+The event is a value struct of plain data (`kind`, `status`, `term_signal`,
+`cycle`, borrowed strings); the state is POD owned by the shell but advanced
+only by the library. The library performs no I/O and allocates nothing the
+shell must free; the shell decides whether and where to print (D-0015). This is
+the contract M6 builds on, proven small before it grows.
+
+### D-0091 — Speaking requires an interactive, non-plain session
+**2026-11-19 · accepted**
+
+The hook is called only from the interactive loop, and only when
+`interactive && !plain && running`. `-c`, scripts, stdin and pipes never call
+it; `--plain` and `WONDERLAND_PLAIN=1` set `plain`. Output goes to stderr and is
+flushed before the prompt. The pty suite runs a second session with `--plain`
+and asserts that a failing command produces no narrative text.
+
+### D-0092 — Cadence: failures speak, successes rarely, exit once
+**2026-11-19 · accepted**
+
+The slice's selection is deterministic: every failure speaks, every sixth
+success speaks, and `exit` may speak. A four-entry ring prevents immediate
+repetition within a pool. There is no wall-clock cooldown, event priority or
+session budget yet; those arrive with the full engine in M6, where they have
+configuration and tests. Successes were made rare on purpose: a shell that
+comments on every command is tiring, and this is the smallest honest version
+of "a persona, not a notification".
+
+### D-0093 — Slice content is original only
+**2026-11-19 · accepted**
+
+All twelve Alice lines are original writing for Wonderland, marked so in the
+source header. No Black Souls dialogue and no quotations are involved. The
+pack format, provenance enforcement and the rest of the cast are M6; the
+example pack from M0 remains the format's reference.
+
+### D-0094 — Slice limitations
+**2026-11-19 · accepted**
+
+* One persona, twelve lines, static table; no packs, no `possess`.
+* No persistence: each session starts with the same state.
+* A bias toward failure commentary; a real engine needs the full frequency
+  model.
+* The `exit` event is not wired into the shell's exit path yet; only
+  `post_exec` is emitted (the exit lines exist for M6/M7).
+* Narrative text is not localised and lives in C strings.

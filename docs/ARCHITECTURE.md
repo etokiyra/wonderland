@@ -250,6 +250,20 @@ The editor restores canonical settings before returning a line, so execution
 never runs with a raw terminal. History is only read and written for
 interactive sessions.
 
+### 4.7 Implemented at M3.5
+
+| Step | File |
+|------|------|
+| event/line ABI and selection state | `include/wonderland/narrative/persona.h` |
+| Alice's twelve original lines and selection | `src/narrative/narrative.c` |
+| plain/interactive gate, event construction, stderr output | `src/main.c` |
+
+The narrative archive is linked into the binary and the unit tests, and is
+still the subject of the `--whole-archive --no-undefined` probe. It has no
+access to `struct wl_shell`, performs no I/O, and returns borrowed text; the
+shell's single `wl_emit_narrative` call is the only path from event to
+terminal.
+
 ## 5. Core data model
 
 ```c
