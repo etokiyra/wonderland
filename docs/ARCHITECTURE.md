@@ -187,6 +187,22 @@ The M1 whitespace splitter is gone. Execution refuses constructs the parser
 accepts but the process model cannot yet run (D-0057), so the two layers can
 advance independently without lying about either.
 
+### 4.3 Implemented at M3a
+
+| Step | File |
+|------|------|
+| variable store and exported environment | `src/core/var.c` |
+| parameter/command/arithmetic/tilde expansion, splitting, globbing | `src/expand/expand.c` |
+| integer arithmetic | `src/expand/arith.c` |
+| redirections, pipelines, command capture, assignments | `src/exec/exec.c` |
+| `export`, `unset`, variable-aware `cd` | `src/builtins/builtins.c` |
+| here-document expansion mode | `src/lex/word.c` (`wl_lex_word_heredoc`) |
+
+Dependency note: `expand` does **not** depend on `exec`. Command substitution
+is a callback (`wl_capture_fn`) supplied by the executor, which keeps the
+"narrative and expansion cannot reach into process state" boundary intact
+while still allowing `$(...)` to run a sub-program.
+
 ## 5. Core data model
 
 ```c

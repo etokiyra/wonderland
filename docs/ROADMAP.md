@@ -102,10 +102,37 @@ Scope: expansion (parameter, command substitution, arithmetic, tilde), field
 splitting, globbing, quote removal, pipes, redirections, `&&`/`||`/`;`/`&`,
 subshells, brace groups, functions, `set -e/-u/-x`.
 
+### M3a — expansion and the process model: **done** (2026-11-19)
+
+Delivered: `core/var.c` (variables + exported environment), `expand/expand.c`
+(parameter/command/arithmetic/tilde expansion, quote removal, `IFS` splitting,
+globbing), `expand/arith.c`, redirections (all operators, including
+here-documents and here-strings), multi-stage pipelines with terminal
+ownership, prefix/standalone assignments, `export`, `unset`, and command
+substitution.
+
+Evidence: 72 unit cases (277 assertions), 101 CLI checks, and a pty test that
+runs a pipeline and a here-document through a real terminal. `make asan`,
+`make memcheck` and `make lint` are clean with gcc and clang. Manual checks
+against dash/bash covered `${x:-a b}` vs `${x:-"a b"}`, `cd` in a pipeline,
+prefix environments, and `yes | head` (no hang).
+
+Deviations and limits are recorded as D-0059…D-0068. In particular: no
+positional parameters yet, non-whitespace `IFS` is approximate, and compound
+commands are still refused.
+
+### M3b — control flow and functions: pending
+
+Scope: execute `if`, `while`, `until`, `for`, `case`, `{ }`, `( )`, and
+functions on the existing AST; `return`, `break`, `continue`, `shift`,
+`trap`; `set -e/-u/-x/-n`; the differential harness against dash and bash;
+`subshells` as real forks where state must not leak.
+
 Exit criteria: the POSIX surface in `docs/COMPATIBILITY.md` §3.1 M1–M3 rows is
-green against bash and (when installed) dash. `yes | head` does not hang.
-Redirection-order cases pass. No fd leaks: a 10k-command loop does not exhaust
-descriptors.
+green against bash and dash, including the redirection-order and `set -e`
+matrices. `yes | head` does not hang (already true). No fd leaks: a
+10k-command loop does not exhaust descriptors. `trap EXIT` runs once and
+preserves the original status.
 
 ## M3.5 — Narrative vertical slice (amendment 7)
 
@@ -216,35 +243,20 @@ and `-c`/stdin handling in `src/main.c`, and tests at three levels (unit, CLI,
 pty). The `pty` test drives a real terminal, not a mock. (`m1_split.c` existed
 here and was deleted in M2.)
 
-## Recommended scope for the Milestone 3 prompt
+## Recommended scope for the Milestone 3b prompt
 
-M3 is large enough that it should be delivered in two contiguous parts, not
-one commit:
-
-**M3a — words become arguments and processes.**
-
-> Implement M3a per `docs/ROADMAP.md` and `docs/GRAMMAR.md`: (1) a variable
-> store in `core` (shell variables plus the exported environment, `PWD`,
-> `OLDPWD`, `IFS`, `$?`, `$$`, `$#`, `$@`, `$*`), with `export`, `unset` and
-> assignment prefixes; (2) the expander: parameter expansion including the
-> `${...}` operators already parsed, tilde, quote removal, field splitting on
-> `IFS`, and globbing via `glob(3)` with literal fallback on no match; (3)
-> command substitution `$(...)` executed in a subshell with trailing newlines
-> stripped, and a minimal arithmetic evaluator for `$((...))`; (4)
-> redirections in the child, left to right, including `2>&1`, `>&-` and
-> here-documents (expanding unquoted bodies); (5) pipelines with one process
-> per stage, the terminal on the first stage's group, `$?` from the last, and
-> `SIGPIPE` handled; (6) `set -e/-u/-x/-n` where the semantics are tested
-> against dash, not assumed; (7) differential tests for every expansion and
-> redirection case in `docs/COMPATIBILITY.md`, plus ASan/valgrind runs.
-> Do not implement job control, `trap`, history, or narrative code.
-
-**M3b — control flow and functions.**
-
-> Implement M3b per `docs/ROADMAP.md`: execute `if`, `while`, `until`, `for`,
-> `case`, `{ }`, `( )`, and function definitions/calls on the existing AST,
-> plus `return`, `break`, `continue`, `shift`, and `trap` on `EXIT`/`INT`/
-> `TERM`. Every construct gets a test in `tests/cases/`, including subshell
-> variable isolation and function positional parameters.
+> Implement M3b per `docs/ROADMAP.md` and `docs/AGENTS.md`: (1) execute
+> `if`/`elif`/`else`, `while`, `until`, `for`, `case`, `{ }`, `( )`, and
+> function definitions/calls on the existing AST, with subshells as real forks
+> so variable and cwd changes do not leak; (2) `return`, `break`, `continue`,
+> `shift`, positional parameters (`$1…`, `$@`, `$*`, `$#`), and `set --`;
+> (3) `trap` on `EXIT`, `INT` and `TERM`, with the EXIT trap running exactly
+> once and preserving the original status; (4) `set -e`, `-u`, `-x`, `-n`
+> with semantics tested against dash, including the `set -e` corners in
+> `docs/COMPATIBILITY.md` §10; (5) a differential runner in `tests/cases/`
+> that compares stdout, stderr and status against dash and bash, with known
+> divergences written down (not skipped silently); (6) `read` and `set` as
+> needed by the tests. Add unit tests for each construct and keep
+> `make test`, `make asan`, `make memcheck` and `make lint` clean.
 
 The vertical narrative slice (M3.5) follows M3b.

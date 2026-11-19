@@ -247,8 +247,10 @@ struct wl_span { size_t start, end; };
 * Quoting any part of the delimiter (`<<"EOF"`, `<<\EOF`, `<<'EOF'`) makes the
   body literal: no expansion, no backslash processing.
 * Unquoted delimiters mark the body `expand`; the body is stored as raw bytes
-  and expanded as a single word when the redirection is applied (M3), never
-  field split or globbed.
+  and expanded as a single word when the redirection is applied. Expansion
+  uses a dedicated lexer mode (D-0067): whitespace does not separate, quotes
+  are literal, and `\` escapes only `$`, backtick, backslash and newline. The
+  body is never field split or globbed.
 * End of input before the delimiter is a diagnostic marked `incomplete`
   (`here-document delimited by end of file`), so the interactive loop asks for
   more input and a script reports a syntax error with status 2.
@@ -315,8 +317,9 @@ wonderland: syntax error at line 3, column 12: expected 'fi' to close 'if' at li
 * `[[ ]]`, arrays, associative arrays, process substitution, `coproc` are not
   in the v1 grammar. They are Bash extensions scheduled for after M8 and are
   listed as such in `docs/COMPATIBILITY.md`.
-* No arithmetic *evaluation* in M2; `$((...))` is lexed and stored, evaluated
-  in M3 when the expression evaluator exists.
+* Arithmetic evaluation is integer-only (D-0066): `+ - * / %`, parentheses,
+  signs and variable names. Comparisons and assignments inside `$((...))` have
+  no grammar yet.
 * No alias expansion before M5 (needs the editor/history around it), and it is
   opt-in if implemented at all.
 

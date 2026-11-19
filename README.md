@@ -3,11 +3,11 @@
 A Unix shell in C17 for Linux, with an optional narrative layer: a dark
 fairy-tale world inhabited by personas who react to what happens in the shell.
 
-**Status: Milestone 2. The parser is real; the execution model is still
-minimal.** Quoting, `;`, `&&`, `||`, `!` and comments work. Expansion,
-redirection, pipelines, compound execution and background jobs are parsed but
-**refused with status 2**. No job control, no history. Do not put it in
-`/etc/shells` and do not `chsh` to it.
+**Status: Milestone 3a. Words expand, redirections redirect, and pipelines
+pipe.** Variables, `$...`, `$(...)`, `$((...))`, `IFS` splitting, globbing,
+here-documents, `export`/`unset`, and multi-stage pipelines work. Control flow
+(`if`/`for`/`while`/`case`), functions, job control and history do not. Do not
+put it in `/etc/shells` and do not `chsh` to it.
 
 The ordering principle is not decorative:
 
@@ -17,59 +17,59 @@ The ordering principle is not decorative:
 
 ```sh
 $ ./build/wonderland
-wonderland:~/Projects/wonderland $ printf '[%s]\n' "a b"
-[a b]
-wonderland:~/Projects/wonderland $ echo one; echo two
-one
-two
-wonderland:~/Projects/wonderland $ false && echo no; echo yes
-yes
-wonderland:~/Projects/wonderland $ echo $HOME
-wonderland: expansion is not implemented yet (M3)
-wonderland:~/Projects/wonderland [2] $ exit 3
+wonderland:~/Projects/wonderland $ X="a b"
+wonderland:~/Projects/wonderland $ printf '[%s]\n' $X
+[a]
+[b]
+wonderland:~/Projects/wonderland $ echo $(echo hi) $((6 * 7))
+hi 42
+wonderland:~/Projects/wonderland $ echo one | tr a-z A-Z
+ONE
+wonderland:~/Projects/wonderland $ cat <<EOF
+> the world remembers
+> EOF
+the world remembers
 ```
 
 * Interactive prompt on stderr, with `$?` shown when nonzero.
 * External commands via `fork`/`execve`, `$PATH` lookup, 127/126/128+N status
-  mapping, foreground process-group handoff, Ctrl-C at the prompt returns to a
-  fresh prompt instead of killing the shell.
-* Builtins: `cd` (HOME, `-`, PWD/OLDPWD) and `exit` (0–255).
-* A real lexer and parser: single/double quotes, backslash escapes, empty
-  quoted arguments, comments, line continuation, `;`, `&&`, `||`, `!`,
-  assignments, redirections, here-documents, pipelines, `if`/`for`/`while`/
-  `case`/functions, `${...}` operators — all parsed into an AST with caret
-  diagnostics, and all tested. Only the literal-word subset executes.
-* `-c STRING`, commands from stdin, and `-` for explicit stdin. All three are
-  non-interactive and therefore plain. Multi-line `-c` and here-documents are
-  parsed as one source unit.
-* `--plain` and `WONDERLAND_PLAIN=1`; the narrative layer is not built yet, so
-  plain mode currently has nothing to suppress, and the tests assert that
-  stdout stays clean anyway.
+  mapping, per-stage process groups, Ctrl-C at the prompt returns to a fresh
+  prompt instead of killing the shell.
+* Variables and `export`; `$x`, `${x}`, `${x:-word}`, `${x#pat}`, `${#x}`,
+  `$(...)`, `$((...))`, `~`, quote removal, `IFS` splitting, globbing.
+* Redirections: `<`, `>`, `>>`, `<>`, `>|`, `2>&1`, `>&-`, here-documents,
+  here-strings, applied left to right.
+* Pipelines of any length; `$?` is the last stage's status.
+* `;`, `&&`, `||`, `!`, comments, line continuation, and continuation prompts.
+* Builtins: `cd`, `exit`, `export`, `unset`.
+* `-c`, commands from stdin, and `-`; all non-interactive and therefore plain.
+* A parser for the *whole* grammar in `docs/GRAMMAR.md`, including compounds
+  and functions, with caret diagnostics — even where execution is still M3b.
 
 ## What does not work yet
 
 | Missing | Arrives |
 |---|---|
-| Expansion (`$x`, `$(...)`, `$((...))`), splitting, globbing, tilde | M3 |
-| Executing redirections, here-documents, pipes | M3 |
-| Executing `if`/`for`/`while`/`case`, functions, assignments | M3 |
-| Background jobs (`cmd &`) | M3/M4 |
-| Script files (`wonderland file.sh`) — refused with status 3 | M3 |
+| Executing `if`/`for`/`while`/`case`, functions, subshells, `{ }` | M3b |
+| `return`, `break`, `continue`, `shift`, positional parameters | M3b |
+| `trap`, `set -e/-u/-x`, `read`, `exec`, `command`, `wait` | M3b |
+| Background jobs (`cmd &`) | M4 |
+| Script files (`wonderland file.sh`) — refused with status 3 | M8 (parser is ready; wiring is small) |
 | Job control (`jobs`, `fg`, `bg`, Ctrl-Z), history, line editing | M4–M5 |
 | `ENOEXEC` fallback for shebang-less scripts | M8 |
 | Personas, packs, `possess`, `rest`, `go-to-alice` | M3.5, M6–M7 |
 
-Consequences today: `echo $HOME` is a clean refusal, `echo "a b"` is one
-argument, `a;b` is two commands, and `ls | wc` parses but is refused. Ctrl-Z
-does nothing to a running command (it is ignored, tested, and documented in
-`docs/DECISIONS.md` D-0051) so that the shell can never wedge on a stopped
-child.
+Known sharp edges: `"$@"` has no positional parameters yet, so it yields one
+empty argument rather than zero; non-whitespace `IFS` collapses repeated
+delimiters. Both are recorded in `docs/DECISIONS.md` D-0068. Ctrl-Z does
+nothing to a running command (ignored, tested) so the shell can never wedge on
+a stopped child.
 
 ## Build and test
 
 ```sh
 make                 # build/wonderland
-make test            # 65 unit cases + 77 CLI checks + a pty session test
+make test            # 72 unit cases + 101 CLI checks + a pty session test
 make asan            # the same under ASan/UBSan
 make memcheck        # unit suite under valgrind (if installed)
 make lint            # cppcheck over src/ (if installed)
@@ -81,16 +81,16 @@ tools: `valgrind`, `cppcheck`, `dash` (for the future differential suite).
 ## Layout
 
 ```
-src/core       shell state, options, buffers, diagnostics
+src/core       shell state, variables, options, buffers, diagnostics
 src/term       terminal snapshot/restore, prompt formatting
 src/line       canonical-mode reader (the M5 editor replaces it)
-src/lex        lexer, word parts and quoting
+src/lex        lexer, word parts, quoting, here-document bodies
 src/parse      parser, here-document queue, diagnostics
 src/ast        arena, AST nodes, stable dump
-src/expand     expansion, splitting, globbing (M3)
-src/exec       PATH resolution, fork/exec, AST execution, builtin dispatch
+src/expand     expansion, arithmetic, splitting, globbing
+src/exec       PATH resolution, fork/exec, redirections, pipelines
 src/jobs       signal dispositions, later the job table
-src/builtins   cd, exit, later possess/rest/go-to-alice
+src/builtins   cd, exit, export, unset; later possess/rest/go-to-alice
 src/narrative  personas and events (isolated library, M3.5+)
 src/content    content pack loader (M6)
 include/       public headers

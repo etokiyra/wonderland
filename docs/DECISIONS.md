@@ -656,6 +656,124 @@ a copied string. The message is correct; the caret may point at the wrong
 column. Fixing that needs a source-offset map and is deferred until the
 interactive experience is polished (M5).
 
+---
+
+## §9. Milestone 3a implementation decisions
+
+### D-0059 — Variables are a linked list with an explicit exported flag
+**2026-11-19 · accepted**
+
+`core/var.c` holds shell variables as a small singly linked list, seeded from
+`environ` at startup. A variable has a value and an `exported` flag; the
+environment handed to a child is rebuilt from the exported ones on every
+command rather than kept in sync with `setenv`. A plain assignment never
+clears an existing export; `export` sets it. This makes `export VAR`, `export
+VAR=value`, and `VAR=value` behave predictably without a second source of
+truth. Strings are malloc'd copies; the store is freed by
+`wl_shell_destroy()`, which `main` and the tests call.
+
+### D-0060 — Expansion carries two flags per byte, not just a string
+**2026-11-19 · accepted**
+
+The expander produces bytes with `quoted` and `split` flags. `quoted` comes
+from quoting and suppresses globbing (quoted metacharacters are escaped for
+`glob(3)`); `split` is true only for bytes produced by an unquoted expansion,
+and only those bytes can delimit fields on `IFS`. Consequences:
+
+* `a:b` with `IFS=:` is one field; `$x` containing `a:b` is two.
+* `a"*"` does not glob; `a*` does.
+* `""` survives as one empty argument; `$empty` produces no argument.
+* An unmatched glob is left literal (POSIX), not an error.
+
+Field splitting is an approximation for non-whitespace `IFS`: runs of
+delimiters are collapsed and empty fields are dropped. That matches the
+default IFS exactly; exotic IFS cases are a documented limitation (D-0068).
+
+### D-0061 — `${x:-word}` quoting: overlay the operand's bytes
+**2026-11-19 · accepted**
+
+`${x:-a b}` splits into two fields when the whole expansion is unquoted,
+while `${x:-"a b"}` does not. The expander therefore keeps the operand's own
+per-byte quoting, overlays the outer quoting on top, and lets every resulting
+byte split exactly when it is not quoted. This was checked against dash and
+bash before the code was accepted; it is not an invented rule.
+
+### D-0062 — Prefix assignments: environment for externals, temporary for builtins
+**2026-11-19 · accepted**
+
+`A=1 cmd` builds a child environment containing `A=1` and does not change the
+shell's `A`. For builtins, the assignment is applied to a saved snapshot and
+restored afterwards, so `A=1 cd /tmp` does not leave `A` behind. A standalone
+`A=1` is a permanent shell assignment. Expansion of the command words happens
+before prefix assignments are applied, as POSIX requires.
+
+### D-0063 — Redirections are prepared in the parent, applied in the child
+**2026-11-19 · accepted**
+
+Targets, here-documents and here-strings are expanded and materialised in the
+parent, so a failure is reported once, before any fork, with status 1.
+External commands apply the prepared list left to right in the child; builtins
+apply it in the parent with `fcntl(F_DUPFD)` save/restore, so `cd /tmp > log`
+works without leaking a descriptor. Errors name the target and use the
+`open(2)` errno. `>&`/`<&` accept only an fd number or `-`; anything else is
+"bad file descriptor". Here-document bodies go through a `tmpfile()` fd marked
+`FD_CLOEXEC`; unquoted delimiters expand the body (D-0067).
+
+### D-0064 — Pipelines: one child per stage, first stage owns the terminal
+**2026-11-19 · accepted**
+
+Each stage is expanded and prepared in the parent, then forked; the first
+child's process group receives the terminal, later children join it, and `$?`
+is the last stage's status (128+N if it was signalled). Builtins in a pipeline
+run in their child, so their state changes are discarded, as POSIX requires.
+The parent closes every pipe end it does not need and waits for all stages.
+Background jobs remain refused until M4; so does stopping/resuming a pipeline.
+
+### D-0065 — Command substitution: fork, capture stdout, strip trailing newlines
+**2026-11-19 · accepted**
+
+`$(...)` is executed by a callback supplied by `exec` (the expander has no
+dependency on execution). The child runs the sub-program with stdout on a pipe;
+the parent reads to EOF and waits. All trailing newlines are removed, never
+interior ones. The substitution's status does not overwrite `$?`, matching the
+observable behaviour of dash and bash for `X=$(false); echo $?`. Captured
+bytes are not size-limited beyond memory; a future limit belongs with the
+source caps (D-0056).
+
+### D-0066 — Arithmetic is integer-only and deliberately small
+**2026-11-19 · accepted**
+
+`$((...))` supports decimal/hex integers, `+ - * / %`, unary signs,
+parentheses, whitespace, and variable names (with or without `$`). Division or
+modulo by zero is an error (status 1), as is trailing garbage. Assignment
+operators, comparisons, `**`, and floating point are not implemented; adding
+them needs tests and a decision, not a drive-by extension. Unset variables
+evaluate to 0.
+
+### D-0067 — Here-document expansion has its own lexer mode
+**2026-11-19 · accepted**
+
+An unquoted delimiter marks the body for expansion, but the body is not a
+normal word: whitespace does not separate, quotes are literal, and a backslash
+escapes only `$`, backtick, backslash and newline (otherwise it stays). The
+lexer gained a `heredoc` mode and `wl_lex_word_heredoc()` so the same
+parameter/command/arithmetic code is reused without pretending the body is a
+quoted shell word. Bodies are still stored raw (D-0054).
+
+### D-0068 — Known M3a limitations
+**2026-11-19 · accepted**
+
+* `"$@"` with zero positional parameters yields one empty argument instead of
+  zero; positional parameters themselves are not implemented yet.
+* Non-whitespace `IFS` handling collapses repeated delimiters instead of
+  preserving empty fields.
+* `set -e/-u/-x`, `read`, `exec`, `trap`, `command`, `type`, `umask`, `wait`
+  and `getopts` are still missing.
+* A variable assigned in a pipeline stage is lost with the child, as intended,
+  but `cd` in a pipeline is likewise local — documented, not a bug.
+* Expansion happens in the parent; a command substitution that never finishes
+  blocks the shell, exactly like any other foreground child.
+
 ### D-0051 — Ctrl-Z is a no-op until M4; non-interactive children share the group
 **2026-11-19 · accepted**
 

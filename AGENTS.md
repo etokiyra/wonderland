@@ -26,13 +26,12 @@ Repository docs are normative:
 | `docs/ROADMAP.md` | milestone order and exit criteria |
 | `docs/RISKS.md` | known failure modes and tripwires |
 
-Current status: Milestone 2 (2026-11-19). The shell parses the full grammar in
-`docs/GRAMMAR.md` (quoting, expansions, redirections, here-documents,
-compounds, functions) and executes simple commands with literal words, `;`,
-`&&`, `||` and `!`. Expansion, redirection, pipelines, assignments, compound
-execution and background jobs are refused with status 2 (D-0057). No job
-control, history, line editing, or narrative code. Do not describe the project
-as a usable daily shell.
+Current status: Milestone 3a (2026-11-19). Expansion (parameters, command
+substitution, arithmetic, tilde, IFS splitting, globbing), variables,
+`export`/`unset`, redirections (including here-documents), and multi-stage
+pipelines work. Control flow, functions, `trap`, `set`, job control, history
+and narrative code do not, and constructs that are parsed but not executable
+are refused with status 2. Do not describe the project as a usable daily shell.
 
 ## 2. Non-negotiable safety rules
 

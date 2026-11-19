@@ -40,7 +40,7 @@ dash.
 Legend: **planned** = in a milestone, **tested** = has a passing differential
 case, **no** = out of scope.
 
-### 3.0 Implemented at M1/M2 (2026-11-19), with its own tests
+### 3.0 Implemented at M1–M3a (2026-11-19), with its own tests
 
 This is deliberately *not* called supported in the POSIX sense: there is no
 differential case yet, so these are regression tests against our own
@@ -52,6 +52,14 @@ specification, not against another shell.
 | Quoting: `'...'`, `"..."`, backslash, `""` surviving as an argument | `tests/unit/test_ast.c`, `tests/run.sh` |
 | `;` lists, `&&`, `\|\|`, `!` | `tests/unit/test_ast.c`, `tests/run.sh` |
 | Comments and `\<newline>` continuation | `tests/unit/test_ast.c`, `tests/run.sh`, pty |
+| Parameter expansion: `$x`, `${x}`, `:-`, `:=`, `:?`, `:+`, `#`, `##`, `%`, `%%`, `${#x}` | `tests/run.sh`, `tests/unit/test_arith.c` |
+| Command substitution `$(...)` | `tests/run.sh` |
+| Arithmetic `$((...))`: `+ - * / %`, parentheses, variables | `tests/unit/test_arith.c`, `tests/run.sh` |
+| Tilde expansion | `tests/run.sh` (manual `~`) |
+| Quote removal, `IFS` splitting, globbing with literal no-match fallback | `tests/run.sh` |
+| Variables, `export`, `unset`, prefix and standalone assignments | `tests/unit/test_var.c`, `tests/run.sh` |
+| Redirections: `< > >> <> >\| <& >& \|`, here-documents, here-strings, left-to-right order | `tests/run.sh`, pty |
+| Pipelines (2+ stages, status from the last, terminal ownership) | `tests/run.sh`, pty |
 | `$PATH` search, direct paths, 127 vs 126 | `tests/unit/test_path.c`, `tests/run.sh` |
 | Exit status propagation, 128+N for signals | `tests/run.sh` |
 | `cd` (HOME, `-`, PWD/OLDPWD) and `exit` (0–255) | `tests/unit/test_builtins.c`, `tests/run.sh` |
@@ -59,10 +67,10 @@ specification, not against another shell.
 | Prompt shape, `$?` display, HOME abbreviation | `tests/unit/test_prompt.c`, `tests/pty/pty_test.c` |
 | Ctrl-C at the prompt; unchanged termios | `tests/pty/pty_test.c` |
 | Ctrl-Z is a no-op, does not wedge the shell (D-0051) | `tests/pty/pty_test.c` |
-| Grammar: pipelines, redirections, assignments, compounds, functions, here-documents, `${...}` operators | parsed and dumped (`tests/unit/test_ast.c`); **not executed** |
+| Grammar: compounds, functions, `${...}` operators | parsed and dumped (`tests/unit/test_ast.c`); execution is M3b |
 | Syntax diagnostics with line, column and caret | `tests/unit/test_ast.c`, `tests/run.sh` |
-| Expansion, field splitting, globbing | **not implemented** (M3) |
-| Executing pipes, redirections, compounds, assignments, background jobs | **refused with status 2** (D-0057) |
+| Executing `if`/`for`/`while`/`case`, functions, subshells, background `&` | **refused with status 2** (M3b/M4) |
+| `set -e/-u/-x`, `trap`, positional parameters, non-whitespace `IFS` exactness | **not implemented** (D-0068) |
 
 ### 3.1 POSIX surface
 
