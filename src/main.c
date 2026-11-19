@@ -183,6 +183,109 @@ static bool wl_ui_icons(void) {
     return wl_ui_utf8();
 }
 
+static bool wl_in_path(const char *name) {
+    const char *path = getenv("PATH");
+    char candidate[WL_PATH_MAX];
+
+    if (path == NULL || name == NULL || name[0] == '\0') {
+        return false;
+    }
+    while (*path != '\0') {
+        const char *end = strchr(path, ':');
+        size_t length = (end != NULL) ? (size_t)(end - path) : strlen(path);
+
+        if (length == 0) {
+            length = 1; /* empty PATH entry means the current directory */
+        }
+        if (length + 1 + strlen(name) + 1 <= sizeof candidate) {
+            int written;
+            struct stat info;
+
+            if (length == 1 && path[0] == ':') {
+                written = snprintf(candidate, sizeof candidate, "./%s", name);
+            } else {
+                written = snprintf(candidate, sizeof candidate, "%.*s/%s",
+                                   (int)length, path, name);
+            }
+            if (written > 0 && (size_t)written < sizeof candidate &&
+                stat(candidate, &info) == 0 && S_ISREG(info.st_mode) &&
+                access(candidate, X_OK) == 0) {
+                return true;
+            }
+        }
+        if (end == NULL) {
+            break;
+        }
+        path = end + 1;
+    }
+    return false;
+}
+
+static bool wl_run_source(struct wl_shell *shell, struct wl_arena *arena,
+                          const char *source, size_t length,
+                          const char *name);
+
+/*
+ * Stock interactive conveniences, mirroring the Caelestia fish config without
+ * adding an alias language: eza-backed ls/ll/la/lla and the git shortcuts.
+ * Functions are interactive-only, so scripts and -c never see them. Each
+ * group is installed only when its tool is on PATH.
+ */
+static void wl_install_shortcuts(struct wl_shell *shell,
+                                 struct wl_arena *arena) {
+    struct wl_buf script;
+    bool eza = wl_in_path("eza");
+    bool git = wl_in_path("git");
+    bool lazygit = wl_in_path("lazygit");
+
+    if (!shell->interactive ||
+        !wl_ui_enabled("WONDERLAND_SHORTCUTS", true)) {
+        return;
+    }
+    wl_buf_init(&script);
+
+    if (eza) {
+        (void)wl_buf_append_str(
+            &script,
+            "ls() { eza --icons=always --group-directories-first -1 \"$@\"; }\n");
+    }
+    (void)wl_buf_append_str(
+        &script,
+        "l() { ls \"$@\"; }\n"
+        "ll() { ls -l \"$@\"; }\n"
+        "la() { ls -a \"$@\"; }\n"
+        "lla() { ls -la \"$@\"; }\n");
+    if (git) {
+        (void)wl_buf_append_str(
+            &script,
+            "gd() { git diff \"$@\"; }\n"
+            "ga() { git add . \"$@\"; }\n"
+            "gc() { git commit -am \"$@\"; }\n"
+            "gl() { git log \"$@\"; }\n"
+            "gs() { git status \"$@\"; }\n"
+            "gst() { git stash \"$@\"; }\n"
+            "gsp() { git stash pop \"$@\"; }\n"
+            "gp() { git push \"$@\"; }\n"
+            "gpl() { git pull \"$@\"; }\n"
+            "gsw() { git switch \"$@\"; }\n"
+            "gsm() { git switch main \"$@\"; }\n"
+            "gb() { git branch \"$@\"; }\n"
+            "gbd() { git branch -d \"$@\"; }\n"
+            "gco() { git checkout \"$@\"; }\n"
+            "gsh() { git show \"$@\"; }\n");
+    }
+    if (lazygit) {
+        (void)wl_buf_append_str(&script, "lg() { lazygit \"$@\"; }\n");
+    }
+
+    if (script.data != NULL && script.len > 0 &&
+        script.data[script.len - 1] == '\n') {
+        (void)wl_run_source(shell, arena, script.data, script.len, "<stock>");
+        wl_arena_reset(arena);
+    }
+    wl_buf_free(&script);
+}
+
 static unsigned wl_active_jobs(const struct wl_shell *shell) {
     unsigned count = 0;
 
@@ -774,6 +877,8 @@ int main(int argc, char **argv) {
         (void)wl_term_save(&term, STDIN_FILENO);
         wl_signal_init_interactive();
         wl_job_init(&shell);
+        wl_install_shortcuts(&shell, &arena);
+        wl_shell_set_status(&shell, 0);
 
         history = wl_history_new();
         history_path = wl_history_default_path();

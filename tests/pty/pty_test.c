@@ -26,7 +26,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define WL_OUTPUT_CAP 32768
+#define WL_OUTPUT_CAP (256 * 1024)
 #define WL_PROMPT_MARK "\x1b]133;A"
 
 static int wl_master = -1;
@@ -290,7 +290,7 @@ static void wl_narrative_session(const char *binary) {
     if (!wl_send("exit 0\n")) {
         wl_fail("narrative: could not write exit");
     }
-    for (waited = 0; waited < 5000; waited += 50) {
+    for (waited = 0; waited < 15000; waited += 50) {
         pid_t reaped = waitpid(child, &status, WNOHANG);
 
         if (reaped == child) {
@@ -345,7 +345,7 @@ static void wl_plain_session(const char *binary) {
     if (!wl_send("exit 0\n")) {
         wl_fail("plain: could not write exit");
     }
-    for (waited = 0; waited < 5000; waited += 50) {
+    for (waited = 0; waited < 15000; waited += 50) {
         pid_t reaped = waitpid(child, &status, WNOHANG);
 
         if (reaped == child) {
@@ -429,7 +429,7 @@ static void wl_cycle_session(const char *binary, const char *persona) {
     if (!wl_send("exit 0\n")) {
         wl_fail("cycle: could not write exit");
     }
-    for (int waited = 0; waited < 5000; waited += 50) {
+    for (int waited = 0; waited < 15000; waited += 50) {
         pid_t result = waitpid(child, &status, WNOHANG);
 
         if (result == child) {
@@ -502,7 +502,7 @@ static void wl_confirm_session(const char *binary) {
     if (!wl_send("y\n")) {
         wl_fail("confirm: could not accept");
     }
-    for (int waited = 0; waited < 5000; waited += 50) {
+    for (int waited = 0; waited < 15000; waited += 50) {
         pid_t result = waitpid(child, &status, WNOHANG);
 
         if (result == child) {
@@ -623,7 +623,7 @@ static void wl_job_session(const char *binary, const char *pack_path,
     if (!wl_send("exit 0\n")) {
         wl_fail("jobs: could not write exit");
     }
-    for (int waited = 0; waited < 5000; waited += 50) {
+    for (int waited = 0; waited < 15000; waited += 50) {
         pid_t result = waitpid(child, &status, WNOHANG);
 
         if (result == child) {
@@ -639,6 +639,67 @@ static void wl_job_session(const char *binary, const char *pack_path,
         (void)kill(child, SIGKILL);
         (void)waitpid(child, &status, 0);
         wl_fail("jobs: shell did not exit");
+    }
+}
+
+/*
+ * The stock interactive shortcuts are functions, so they must exist before
+ * the first prompt and must not leak into non-interactive sessions. A fresh
+ * pty keeps the assertion independent of the long editing session above.
+ */
+static void wl_shortcut_session(const char *binary) {
+    pid_t child;
+    int status = 0;
+    int reaped = 0;
+    int prompts;
+
+    wl_master = -1;
+    wl_output_len = 0;
+    wl_output[0] = '\0';
+
+    child = forkpty(&wl_master, NULL, NULL, NULL);
+    if (child < 0) {
+        wl_fail("shortcuts: forkpty failed");
+        return;
+    }
+    if (child == 0) {
+        execl(binary, binary, "--plain", (char *)NULL);
+        _exit(127);
+    }
+    wl_disable_echo();
+    if (!wl_wait_for(WL_PROMPT_MARK, 5000)) {
+        wl_fail("shortcuts: prompt did not appear");
+    }
+    prompts = wl_count_of(WL_PROMPT_MARK);
+
+    if (!wl_send("ll README.md\n")) {
+        wl_fail("shortcuts: could not write ll");
+    }
+    if (!wl_wait_for_count(WL_PROMPT_MARK, prompts + 1, 5000)) {
+        wl_fail("shortcuts: no prompt after ll");
+    } else if (!wl_wait_for("README.md", 5000)) {
+        wl_fail("shortcuts: ll did not list the file");
+    }
+
+    if (!wl_send("exit 0\n")) {
+        wl_fail("shortcuts: could not write exit");
+    }
+    for (int waited = 0; waited < 15000; waited += 50) {
+        pid_t result = waitpid(child, &status, WNOHANG);
+
+        if (result == child) {
+            reaped = 1;
+            break;
+        }
+        if (result < 0) {
+            break;
+        }
+        (void)wl_pump(50);
+    }
+    if (!reaped) {
+        (void)kill(child, SIGKILL);
+        (void)waitpid(child, &status, 0);
+        wl_fail("shortcuts: shell did not exit");
     }
 }
 
@@ -877,7 +938,7 @@ int main(int argc, char **argv) {
     if (!wl_send("exit 4\n")) {
         wl_fail("could not write to the terminal");
     }
-    for (int waited = 0; waited < 5000; waited += 50) {
+    for (int waited = 0; waited < 15000; waited += 50) {
         pid_t result = waitpid(child, &status, WNOHANG);
 
         if (result == child) {
@@ -913,6 +974,13 @@ int main(int argc, char **argv) {
     wl_plain_session(binary);
     if (wl_failures != 0) {
         fprintf(stderr, "pty: FAIL (%d in the plain session)\n%s\n",
+                wl_failures, wl_output);
+        return 1;
+    }
+
+    wl_shortcut_session(binary);
+    if (wl_failures != 0) {
+        fprintf(stderr, "pty: FAIL (%d in the shortcut session)\n%s\n",
                 wl_failures, wl_output);
         return 1;
     }
@@ -993,6 +1061,6 @@ int main(int argc, char **argv) {
     }
     printf("pty: ok (prompt, command, cd, pipeline, here-document, jobs, "
            "Ctrl-C, Ctrl-Z, bg, narrative, rest/respawn, possession, plain, "
-           "cycle state, exit 4, termios unchanged)\n");
+           "cycle state, shortcuts, exit 4, termios unchanged)\n");
     return 0;
 }

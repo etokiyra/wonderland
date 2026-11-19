@@ -137,6 +137,10 @@ run -c 'possess'
 expect "possess reports that no personas are loaded" status_is 1
 expect "possess names the missing world" stderr_has "no personas"
 
+run -c 'll'
+expect "stock shortcuts do not leak into -c" status_is 127
+expect "stock shortcuts are absent from scripts" stderr_has "ll: command not found"
+
 WONDERLAND_DEATH_SCREEN=1 "$BIN" -c 'false' >"$tmp/out" 2>"$tmp/err"
 status=$?
 expect "death screen never runs in a plain session" stderr_empty
